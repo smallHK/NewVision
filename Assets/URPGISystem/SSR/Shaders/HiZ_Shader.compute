@@ -1,0 +1,20 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+#pragma kernel DepthCopy
+#pragma kernel DebugEdit
+#pragma kernel DebugCopyScale
+#pragma kernel DebugApplyBorders
+#include "UnityCG.cginc"
+#include "Common.hlsl"
+
+#define THREADS 8
+
+
+/////////////////////RUNTIME CODE////////////////////////
+uint2 sSize;
+uint2 dSize;
+uint2 screenSize;
+uint sSlice;
+uint dSlice;
+//bool extraSampleX;
+//bool extraSampleY;
