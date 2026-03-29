@@ -1,44 +1,38 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Security.Cryptography;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
-using UnityEngine.UIElements;
-using static TMPro.SpriteAssetUtilities.TexturePacker_JsonArray;
-
 
 namespace NewVision.PCSS
 {
-
-
-    [ExecuteAlways]
     public class MyPCSS : ScriptableRendererFeature
     {
         [System.Serializable]
         public class PCSSSettings
         {
-            [Header("²ÉÑùÉèÖÃ")]
+            [Header("é‡‡æ ·è®¾ç½®")]
             [Range(1, 64)] public int BlockerSampleCount = 16;
             [Range(1, 64)] public int PCFSampleCount = 16;
 
-            [Header("ÈáºÍ¶È")]
+            [Header("æŸ”å’Œåº¦")]
             [Range(0f, 7.5f)] public float Softness = 1f;
             [Range(0f, 5f)] public float SoftnessFalloff = 4f;
 
-            [Header("ÒõÓ°Æ«ÒÆ (¿¹ Acne)")]
+            [Header("é˜´å½±åç§» (æŠ— Acne)")]
             [Range(0f, 0.15f)] public float MaxStaticGradientBias = 0.05f;
             [Range(0f, 1f)] public float BlockerGradientBias = 0f;
             [Range(0f, 1f)] public float PCFGradientBias = 1f;
 
-            [Header("¼¶Áª»ìºÏ")]
+            [Header("çº§è”æ··åˆ")]
             [Range(0f, 1f)] public float CascadeBlendDistance = 0.5f;
             public bool SupportOrthographic = true;
 
-            [Header("×ÊÔ´")]
+            [Header("èµ„æº")]
             public Texture2D NoiseTexture;
             public Shader PCSSShader;
         }
+
         public PCSSSettings settings = new PCSSSettings();
         private MyPCSSPass _pass;
         private Material _material;
@@ -55,18 +49,14 @@ namespace NewVision.PCSS
         public override void Create()
         {
             _pass = new MyPCSSPass();
-            //_pass.renderPassEvent = RenderPassEvent.AfterRenderingOpaques;
-            _pass.renderPassEvent = RenderPassEvent.BeforeRenderingDeferredLights;
+            _pass.renderPassEvent = RenderPassEvent.AfterRenderingShadows;
         }
-
 
         protected override void Dispose(bool disposing)
         {
             CoreUtils.Destroy(_material);
         }
-
     }
-
 
     public class MyPCSSPass : ScriptableRenderPass
     {
@@ -76,11 +66,7 @@ namespace NewVision.PCSS
         private MyPCSS.PCSSSettings _settings;
         private ScriptableRenderer _renderer;
 
-        //bugÐÞ¸´£¿
-        private int _ScreenSpaceShadowmapTextureId = Shader.PropertyToID("_ScreenSpaceShadowmapTexture");
-
-
-        // Shader ÊôÐÔ ID
+        // Shader å±žæ€§ ID
         private static readonly int BlockerSamplesId = Shader.PropertyToID("Blocker_Samples");
         private static readonly int PCFSamplesId = Shader.PropertyToID("PCF_Samples");
         private static readonly int SoftnessId = Shader.PropertyToID("Softness");
@@ -91,7 +77,6 @@ namespace NewVision.PCSS
         private static readonly int CascadeBlendId = Shader.PropertyToID("CascadeBlendDistance");
         private static readonly int NoiseCoordsId = Shader.PropertyToID("NoiseCoords");
         private static readonly int NoiseTexId = Shader.PropertyToID("_NoiseTexture");
-        private static readonly int ShadowDistanceId = Shader.PropertyToID("_ShadowDistance");
 
         public void Setup(ScriptableRenderer renderer, Material material, MyPCSS.PCSSSettings settings)
         {
@@ -99,6 +84,7 @@ namespace NewVision.PCSS
             _material = material;
             _settings = settings;
         }
+
         public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
         {
             cmd.GetTemporaryRT(TempRTId, cameraTextureDescriptor);
@@ -111,66 +97,47 @@ namespace NewVision.PCSS
 
             SetMaterialParams(cmd, ref renderingData);
 
-            //var source = _renderer.cameraColorTarget;
-            //cmd.Blit(source, TempRTId, _material, 0);
-            //cmd.Blit(TempRTId, source);
-
-            //context.ExecuteCommandBuffer(cmd);
-            //CommandBufferPool.Release(cmd);
-
-
-
-            // »ñÈ¡Ïà»úÄ¿±ê
+            // èŽ·å–ç›¸æœºç›®æ ‡æè¿°ç¬¦
             RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
             descriptor.depthBufferBits = 0;
-            descriptor.colorFormat = RenderTextureFormat.R8; // ÒõÓ°µ¥Í¨µÀ
+            descriptor.colorFormat = RenderTextureFormat.R8; // é˜´å½±é€æ˜Žåº¦
 
-            // ¹Ø¼ü£º´´½¨ URP ÄÚÖÃµÄÈ«¾ÖÒõÓ°ÎÆÀí
-            cmd.GetTemporaryRT(
-                _ScreenSpaceShadowmapTextureId,
-                descriptor,
-                FilterMode.Bilinear
-            );
+            // æ‰§è¡ŒPCSSé˜´å½±è®¡ç®—
+            var source = _renderer.cameraColorTarget;
+            cmd.Blit(source, TempRTId, _material, 0);
+            cmd.Blit(TempRTId, source);
 
-            // ¹Ø¼ü£ºPCSS äÖÈ¾ ¡ú Ö±½ÓÐ´Èë _ScreenSpaceShadowmapTexture
-            cmd.Blit(
-                BuiltinRenderTextureType.None,      // ²»ÐèÒªÊäÈë
-                _ScreenSpaceShadowmapTextureId,      // Ä¿±ê£ºURPÄÚÖÃÒõÓ°Í¼
-                _material,                           // ÄãµÄPCSS Shader
-                0                                    // Pass
-            );
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
         }
 
         private void SetMaterialParams(CommandBuffer cmd, ref RenderingData renderingData)
         {
-            // ²ÉÑùÊý
+            // é‡‡æ ·æ•°
             cmd.SetGlobalInt(BlockerSamplesId, _settings.BlockerSampleCount);
             cmd.SetGlobalInt(PCFSamplesId, _settings.PCFSampleCount);
 
-            // ÈáºÍ¶È (¸ù¾ÝÒõÓ°¾àÀëËõ·Å)
+            // æŸ”å’Œåº¦ (æ ¹æ®é˜´å½±è·ç¦»è°ƒæ•´)
             float shadowDist = renderingData.cameraData.maxShadowDistance;
-            cmd.SetGlobalFloat(ShadowDistanceId, shadowDist);
             cmd.SetGlobalFloat(SoftnessId, _settings.Softness / 64f / Mathf.Sqrt(shadowDist));
             cmd.SetGlobalFloat(SoftnessFalloffId, Mathf.Exp(_settings.SoftnessFalloff));
 
-            // Æ«ÒÆ
+            // åç§»
             cmd.SetGlobalFloat(MaxStaticBiasId, _settings.MaxStaticGradientBias);
             cmd.SetGlobalFloat(BlockerBiasId, _settings.BlockerGradientBias);
             cmd.SetGlobalFloat(PCFBiasId, _settings.PCFGradientBias);
 
-            // ¼¶Áª»ìºÏ
+            // çº§è”æ··åˆ
             cmd.SetGlobalFloat(CascadeBlendId, _settings.CascadeBlendDistance);
 
-
-            // ÔëÉùÎÆÀí
+            // å™ªå£°çº¹ç†
             if (_settings.NoiseTexture != null)
             {
                 cmd.SetGlobalVector(NoiseCoordsId, new Vector4(1f / _settings.NoiseTexture.width, 1f / _settings.NoiseTexture.height, 0, 0));
                 cmd.SetGlobalTexture(NoiseTexId, _settings.NoiseTexture);
             }
 
-
-            // ¹Ø¼ü×Ö (Keywords)
+            // å…³é”®å­— (Keywords)
             SetKeyword(cmd, "USE_FALLOFF", _settings.SoftnessFalloff > Mathf.Epsilon);
             SetKeyword(cmd, "USE_CASCADE_BLENDING", _settings.CascadeBlendDistance > 0);
             SetKeyword(cmd, "USE_STATIC_BIAS", _settings.MaxStaticGradientBias > 0);
@@ -194,7 +161,6 @@ namespace NewVision.PCSS
             cmd.ReleaseTemporaryRT(TempRTId);
         }
     }
-
 }
 
 
