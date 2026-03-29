@@ -16,7 +16,8 @@ MonoBehaviour:
     debugReplacementPS: {fileID: 4800000, guid: cf852408f2e174538bcd9b7fda1c5ae7, type: 3}
   m_RendererFeatures:
   - {fileID: 9131499273799005415}
-  m_RendererFeatureMap: e7f48671359ab97e
+  - {fileID: 745020870173784929}
+  m_RendererFeatureMap: e7f48671359ab97e61fbf5bc88d8560a
   m_UseNativeRenderPass: 0
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -47,13 +48,30 @@ MonoBehaviour:
     failOperation: 0
     zFailOperation: 0
   m_ShadowTransparentReceive: 1
-  m_RenderingMode: 0
+  m_RenderingMode: 1
   m_DepthPrimingMode: 0
   m_CopyDepthMode: 0
   m_AccurateGbufferNormals: 0
   m_ClusteredRendering: 0
   m_TileSize: 32
   m_IntermediateTextureMode: 1
+--- !u!114 &745020870173784929
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f9bc9f0b8c8de9c4294f40f5a26bc67b, type: 3}
+  m_Name: LTCAreaLightFeature
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  m_Settings:
+    m_RenderPassEvent: 300
+    m_LTCPassShader: {fileID: 4800000, guid: d5b30ebdcae40c0449906e21536fccea, type: 3}
+    m_MaxAreaLightCount: 16
 --- !u!114 &9131499273799005415
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -66,7 +84,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bd4eb6b96f0ac0f4cae14de5797007da, type: 3}
   m_Name: MyGTAO
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   m_Shader: {fileID: 4800000, guid: c43290d67093b3d4286774c537c76c99, type: 3}
   m_Settings:
     Downsample: 0

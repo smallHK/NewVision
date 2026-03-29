@@ -1,0 +1,102 @@
+#pragma kernel CSMain
+
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "SH.hlsl"
+
+struct Surfel
+{
+    float3 position;
+    float3 normal;
+    float3 albedo;
+    float skyMask;
+};
+
+RWStructuredBuffer<Surfel> _surfels;
+RWStructuredBuffer<int> _coefficientSH9;
+RWStructuredBuffer<int> _coefficientVoxel;
+RWStructuredBuffer<float3> _surfelRadiance;
+int _indexInProbeVolume;
+float4 _probePos;
+
+float3 CalculateDirectLighting(float3 normal)
+{
+    float3 lightColor = 1.0;
+    float3 lightDir = normalize(float3(1, 1, 1));
+    float NdotL = saturate(dot(normal, lightDir));
+    return lightColor * NdotL;
+}
+
+[numthreads(32,16,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint surfelIndex = id.x * 16 + id.y;
+    Surfel surfel = _surfels[surfelIndex];
+    
+    float3 radiance = float3(0, 0, 0);
+    
+    // direct lighting
+    if (surfel.skyMask < 0.995)
+    {
+        radiance += CalculateDirectLighting(surfel.normal);
+    }
+    
+    // indirect lighting
+    float3 dir = normalize(surfel.position - _probePos.xyz);
+    float NdotV = saturate(dot(surfel.normal, dir));
+    if (NdotV > 0)
+    {
+        float3 BRDF = surfel.albedo / PI;
+        
+        // sample SH from voxel
+        float3 c[9];
+        if (_indexInProbeVolume >= 0)
+        {
+            DecodeSHCoefficientFromVoxel(c, _coefficientVoxel, _indexInProbeVolume);
+        }
+        else
+        {
+            for (int i = 0; i < 9; i++)
+            {
+                c[i] = float3(
+                    DecodeFloatFromInt(_coefficientSH9[i * 3 + 0]),
+                    DecodeFloatFromInt(_coefficientSH9[i * 3 + 1]),
+                    DecodeFloatFromInt(_coefficientSH9[i * 3 + 2])
+                );
+            }
+        }
+        
+        float3 irradiance = IrradianceSH9(c, surfel.normal);
+        radiance += irradiance * BRDF * NdotV;
+    }
+    
+    _surfelRadiance[surfelIndex] = radiance;
+    
+    // update SH coefficients
+    if (_indexInProbeVolume >= 0)
+    {
+        const int coefficientByteSize = 27;
+        int offset = _indexInProbeVolume * coefficientByteSize;
+        
+        for (int i = 0; i < 9; i++)
+        {
+            float3 shValue = float3(SH(i / 3, i % 3 - 1, normalize(surfel.position - _probePos.xyz)));
+            float3 contribution = radiance * surfel.albedo * shValue;
+            
+            InterlockedAdd(_coefficientVoxel[offset + i * 3 + 0], EncodeFloatToInt(contribution.x));
+            InterlockedAdd(_coefficientVoxel[offset + i * 3 + 1], EncodeFloatToInt(contribution.y));
+            InterlockedAdd(_coefficientVoxel[offset + i * 3 + 2], EncodeFloatToInt(contribution.z));
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 9; i++)
+        {
+            float3 shValue = float3(SH(i / 3, i % 3 - 1, normalize(surfel.position - _probePos.xyz)));
+            float3 contribution = radiance * surfel.albedo * shValue;
+            
+            InterlockedAdd(_coefficientSH9[i * 3 + 0], EncodeFloatToInt(contribution.x));
+            InterlockedAdd(_coefficientSH9[i * 3 + 1], EncodeFloatToInt(contribution.y));
+            InterlockedAdd(_coefficientSH9[i * 3 + 2], EncodeFloatToInt(contribution.z));
+        }
+    }
+}

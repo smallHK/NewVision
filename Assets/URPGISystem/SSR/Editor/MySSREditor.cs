@@ -57,11 +57,11 @@ namespace NewVision.SSR.MyEditor
             bool hasDepthPyramid = false;
             for (int i = 0; i < renderObjects.Count; i++)
             {
-                if (renderObjects[i].GetType() == typeof(DepthPyramid))
-                {
-                    hasDepthPyramid = true;
-                    break;
-                }
+                //if (renderObjects[i].GetType() == typeof(DepthPyramid))
+                //{
+                //    hasDepthPyramid = true;
+                //    break;
+                //}
             }
             return hasDepthPyramid;
         }
@@ -90,8 +90,8 @@ namespace NewVision.SSR.MyEditor
             {
                 if (!AssetHasDepthPyramid())
                 {
-                    var name = typeof(DepthPyramid).FullName;
-                    Debug.LogError("Current tracing mode requires " + name + ". Add " + name + " as a render feature.");
+                    //var name = typeof(DepthPyramid).FullName;
+                    //Debug.LogError("Current tracing mode requires " + name + ". Add " + name + " as a render feature.");
                 }
                 EditorGUILayout.PropertyField(m_MaxSteps, Styles.MaxSteps);
                 m_MaxSteps.floatValue = Mathf.Max(Mathf.Floor(m_MaxSteps.floatValue), 8);

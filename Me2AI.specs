@@ -1,0 +1,31 @@
+# Me2AI 核心规则文件
+# 所有项目改动必须遵守此规则
+
+version: "1.0.0"
+description: "Me2AI核心规则文件 - 所有项目改动必须遵守此规则"
+
+rules:
+  - id: "rule-1"
+    name: "禁止自主运行测试"
+    description: "不准自己运行测试，所有测试由用户完成"
+    severity: "error"
+    conditions: []
+    actions: []
+  - id: "rule-2"
+    name: "禁止开启Unity"
+    description: "严禁开启Unity编辑器"
+    severity: "error"
+    conditions: []
+    actions: []
+  - id: "rule-3"
+    name: "禁止开启Visual Studio"
+    description: "严禁开启Visual Studio"
+    severity: "error"
+    conditions: []
+    actions: []
+  - id: "rule-4"
+    name: "Unity API版本规范"
+    description: "所有生成的代码使用的Unity API，版本默认为Unity 2021版本 API"
+    severity: "error"
+    conditions: []
+    actions: []
