@@ -1,31 +1,47 @@
 #pragma kernel CSMain
 
-Texture3D<float4> _InputTex;
+#include "UnityCG.cginc"
+
 RWTexture3D<float4> _OutputTex;
+Texture3D<float4> _InputTex;
+SamplerState sampler_InputTex;
 int _InputMip;
 int _OutputMip;
+int3 _InputTextureSize;
 
-[numthreads(8,8,8)]
+[numthreads(8, 8, 8)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    int3 inputRes = int3(_InputTex.GetDimensions(_InputMip));
-    int3 outputRes = int3(_OutputTex.GetDimensions(_OutputMip));
-    if (all(id < outputRes))
-    {
-        int3 inputId = id * 2;
-        float4 sum = 0;
-        
-        // �򵥵� Box �˲��²���
-        for (int z = 0; z < 2; z++)
-        for (int y = 0; y < 2; y++)
-        for (int x = 0; x < 2; x++)
-        {
-            int3 idx = inputId + int3(x, y, z);
-            if (all(idx < inputRes))
-                sum += _InputTex[uint3(idx), _InputMip];
+    // 计算输入纹理的分辨率
+    int3 inputRes = _InputTextureSize >> _InputMip;
+    int3 outputRes = _InputTextureSize >> _OutputMip;
+    
+    // 计算输入纹理的采样坐标
+    float3 uv = (float3(id) + 0.5f) / float3(outputRes);
+    
+    // 3x3x3 高斯模糊
+    float4 color = float4(0, 0, 0, 0);
+    float weight = 0.0f;
+    
+    for (int z = -1; z <= 1; z++) {
+        for (int y = -1; y <= 1; y++) {
+            for (int x = -1; x <= 1; x++) {
+                float3 offset = float3(x, y, z) / float3(inputRes);
+                float3 sampleUV = uv + offset;
+                
+                if (all(sampleUV >= 0) && all(sampleUV <= 1)) {
+                    float4 sampleColor = _InputTex.SampleLevel(sampler_InputTex, sampleUV, _InputMip);
+                    float gaussianWeight = exp(-(x*x + y*y + z*z) / 2.0f);
+                    color += sampleColor * gaussianWeight;
+                    weight += gaussianWeight;
+                }
+            }
         }
-        
-        _OutputTex[id] = sum / 8.0f;
     }
-   
+    
+    if (weight > 0.0f) {
+        color /= weight;
+    }
+    
+    _OutputTex[id] = color;
 }

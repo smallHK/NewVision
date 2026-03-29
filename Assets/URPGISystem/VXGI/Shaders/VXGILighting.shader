@@ -7,168 +7,204 @@ Shader "Hidden/VXGI/VXGILighting"
         Pass
         {
 
-            //HLSLPROGRAM
-            //#pragma vertex Vert
-            //#pragma fragment Frag
-            //// --------------------------
-            //// URP ‘≠…˙ø‚
-            //// --------------------------
-            //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
-            //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Shadow.hlsl"
-            //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/GBuffer.hlsl"
-            //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment Frag
+            // --------------------------
+            // URP Ê†∏ÂøÉÂ§¥Êñá‰ª∂
+            // --------------------------
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
-            //// --------------------------
-            //// VXGI »´æ÷±‰¡ø
-            //// --------------------------
-            //CBUFFER_START(VXGISettings)
-            //    float _IndirectDiffuseIntensity;
-            //    float _IndirectSpecularIntensity;
-            //    int _ConeTraceSteps;
-            //    float _ConeAperture;
-            //    float4x4 _WorldToVoxel;
-            //    float _VoxelBound;
-            //    int _VoxelResolution;
-            //CBUFFER_END
+            // --------------------------
+            // VXGI ÂÖ®Â±ÄÂèòÈáè
+            // --------------------------
+            CBUFFER_START(VXGISettings)
+                float _IndirectDiffuseIntensity;
+                float _IndirectSpecularIntensity;
+                int _ConeTraceSteps;
+                float _ConeAperture;
+                float4x4 _WorldToVoxel;
+                float _VoxelBound;
+                int _VoxelResolution;
+            CBUFFER_END
 
-            //TEXTURE3D(_VoxelRadiance);
-            //SAMPLER(sampler_VoxelRadiance);
+            TEXTURE3D(_VoxelRadiance);
+            SAMPLER(sampler_VoxelRadiance);
+            
+            // GBuffer Á∫πÁêÜ
+            TEXTURE2D(_GBuffer0);
+            TEXTURE2D(_GBuffer1);
+            TEXTURE2D(_GBuffer2);
+            SAMPLER(sampler_GBuffer0);
+            SAMPLER(sampler_GBuffer1);
+            SAMPLER(sampler_GBuffer2);
 
-            //// --------------------------
-            ////  ‰»Î ‰≥ˆΩ·ππ
-            //// --------------------------
-            //struct Attributes { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            //struct Varyings { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+            // --------------------------
+            // GBuffer Êï∞ÊçÆÁªìÊûÑ
+            // --------------------------
+            struct GBufferData {
+                float3 albedo;
+                float3 normalWS;
+                float metallic;
+                float smoothness;
+                float3 emission;
+                float occlusion;
+            };
 
-            //Varyings Vert(Attributes input)
-            //{
-            //    Varyings output;
-            //    output.pos = TransformObjectToHClip(input.pos.xyz);
-            //    output.uv = input.uv;
-            //    return output;
-            //}
-            //// ==================================================
-            //// °æ¿©’πµ„ 1°øLTC ÷±Ω”π‚ÃÊªª«¯
-            //// Ã· æ£∫Ω´œ¬∑Ω ComputeDirectLighting ÃÊªªŒ™ LTC æÿ’Û≤È’“ + ª˝∑÷
-            //// ≤Ω÷Ë£∫
-            //// 1. “˝»Î LTC LUT Œ∆¿Ì (ltc_mat, ltc_mag)
-            //// 2. ∏˘æ› roughness ≤È’“ LTC æÿ’Û
-            //// 3. ±‰ªªπ‚œﬂ∑ΩœÚ≤¢ª˝∑÷
-            //// ==================================================
-            //float3 ComputeDirectLighting(Light light, float3 N, float3 V, float roughness, float metallic, float3 albedo)
-            //{
-            //    // °æ±£¡Ù°øURP ‘≠…˙÷±Ω”π‚º∆À„ (ø…ÃÊªªŒ™ LTC)
-            //    return LightingPhysicallyBased(light, N, V, roughness, metallic, albedo, 1.0 - roughness);
-            //}
+            // --------------------------
+            // ÈááÊ†∑ GBuffer
+            // --------------------------
+            GBufferData SampleGBuffer(float2 uv, bool depthOnly) {
+                GBufferData gbuffer;
+                
+                // ÈááÊ†∑ GBuffer Á∫πÁêÜ
+                float4 gbuffer0 = SAMPLE_TEXTURE2D(_GBuffer0, sampler_GBuffer0, uv);
+                float4 gbuffer1 = SAMPLE_TEXTURE2D(_GBuffer1, sampler_GBuffer1, uv);
+                float4 gbuffer2 = SAMPLE_TEXTURE2D(_GBuffer2, sampler_GBuffer2, uv);
+                
+                // Ëß£Êûê GBuffer Êï∞ÊçÆ
+                gbuffer.albedo = gbuffer0.rgb;
+                gbuffer.normalWS = normalize(gbuffer0.a * 2.0 - 1.0);
+                gbuffer.metallic = gbuffer1.r;
+                gbuffer.smoothness = gbuffer1.g;
+                gbuffer.emission = gbuffer2.rgb;
+                gbuffer.occlusion = gbuffer2.a;
+                
+                return gbuffer;
+            }
 
-            //// ==================================================
-            //// °æ∫À–ƒ°øVXGI ◊∂◊∑◊Ÿ µœ÷
-            //// ==================================================
-            //float3 ConeTrace(float3 posVS, float3 dirVS, float aperture, int steps)
-            //{
-            //    float3 color = 0;
-            //    float dist = 0.1f;
-            //    float stepSize = _VoxelBound / _VoxelResolution;
+            // --------------------------
+            // È°∂ÁÇπÁùÄËâ≤Âô®ÁªìÊûÑ
+            // --------------------------
+            struct Attributes { float4 pos : POSITION; float2 uv : TEXCOORD0; };
+            struct Varyings { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
-            //    for (int i = 0; i < steps; i++)
-            //    {
-            //        float3 samplePos = posVS + dirVS * dist;
-            //        float radius = dist * aperture;
-            //        float mip = log2(radius * _VoxelResolution / _VoxelBound);
+            Varyings Vert(Attributes input)
+            {
+                Varyings output;
+                output.pos = TransformObjectToHClip(input.pos.xyz);
+                output.uv = input.uv;
+                return output;
+            }
+            
+            // ==================================================
+            // Áõ¥Êé•ÂÖâÁÖßËÆ°ÁÆó
+            // ==================================================
+            float3 ComputeDirectLighting(Light light, float3 N, float3 V, float roughness, float metallic, float3 albedo)
+            {
+                // ËÆ°ÁÆóÁõ¥Êé•ÂÖâÁÖß
+                float3 directLight = light.color * saturate(dot(N, light.direction)) * light.distanceAttenuation * light.shadowAttenuation;
+                return directLight * albedo;
+            }
+
+            // ==================================================
+            // VXGI Èî•ËøΩË∏™ÂÆûÁé∞
+            // ==================================================
+            float3 ConeTrace(float3 posVS, float3 dirVS, float aperture, int steps)
+            {
+                float3 color = 0;
+                float dist = 0.1f;
+                float stepSize = _VoxelBound / _VoxelResolution;
+
+                for (int i = 0; i < steps; i++)
+                {
+                    float3 samplePos = posVS + dirVS * dist;
+                    float radius = dist * aperture;
+                    float mip = log2(radius * _VoxelResolution / _VoxelBound);
                     
-            //        if (all(samplePos >= 0) && all(samplePos <= 1))
-            //        {
-            //            float4 voxel = SAMPLE_TEXTURE3D_LOD(_VoxelRadiance, sampler_VoxelRadiance, samplePos, mip);
-            //            color += voxel.rgb * voxel.a;
-            //        }
+                    if (all(samplePos >= 0) && all(samplePos <= 1))
+                    {
+                        float4 voxel = SAMPLE_TEXTURE3D_LOD(_VoxelRadiance, sampler_VoxelRadiance, samplePos, mip);
+                        color += voxel.rgb * voxel.a;
+                    }
 
-            //        dist += stepSize * (1 + i * 0.5f);
-            //    }
+                    dist += stepSize * (1 + i * 0.5f);
+                }
 
-            //    return color / steps;
-            //}
+                return color / steps;
+            }
 
-            //float3 ComputeVXGI_Diffuse(float3 posWS, float3 normalWS)
-            //{
-            //    float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
-            //    float3 normalVS = normalize(mul((float3x3)_WorldToVoxel, normalWS));
+            float3 ComputeVXGI_Diffuse(float3 posWS, float3 normalWS)
+            {
+                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
+                float3 normalVS = normalize(mul((float3x3)_WorldToVoxel, normalWS));
                 
-            //    // ºÚµ•µƒ∞Î«Ú≤…—˘ (ø…”≈ªØŒ™∂‡∑ΩœÚ◊∂◊∑◊Ÿ)
-            //    float3 indirect = ConeTrace(posVS, normalVS, _ConeAperture, _ConeTraceSteps);
-            //    return indirect * _IndirectDiffuseIntensity;
-            //}
+                // ÁÆÄÂçïÁöÑÈî•ËøΩË∏™ÔºàÂêéÁª≠ÂèØÊâ©Â±ï‰∏∫ÂçäÁêÉÈááÊ†∑Ôºâ
+                float3 indirect = ConeTrace(posVS, normalVS, _ConeAperture, _ConeTraceSteps);
+                return indirect * _IndirectDiffuseIntensity;
+            }
 
-            //float3 ComputeVXGI_Specular(float3 posWS, float3 viewWS, float3 normalWS, float roughness)
-            //{
-            //    float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
-            //    float3 reflVS = normalize(mul((float3x3)_WorldToVoxel, reflect(-viewWS, normalWS)));
+            float3 ComputeVXGI_Specular(float3 posWS, float3 viewWS, float3 normalWS, float roughness)
+            {
+                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
+                float3 reflVS = normalize(mul((float3x3)_WorldToVoxel, reflect(-viewWS, normalWS)));
                 
-            //    float aperture = _ConeAperture * (roughness + 0.1f);
-            //    float3 indirect = ConeTrace(posVS, reflVS, aperture, _ConeTraceSteps);
-            //    return indirect * _IndirectSpecularIntensity;
-            //}
+                float aperture = _ConeAperture * (roughness + 0.1f);
+                float3 indirect = ConeTrace(posVS, reflVS, aperture, _ConeTraceSteps);
+                return indirect * _IndirectSpecularIntensity;
+            }
 
 
-            //// ==================================================
-            //// °æ¿©’πµ„ 2°øIBL / PRT ¿©’π«¯
-            //// Ã· æ£∫ÃÊªªœ¬∑Ω IBL ≤…—˘Œ™◊‘∂®“ÂæÌª˝ªÚ PRT «Ú–≥
-            //// ==================================================
-            //float3 ComputeIBL(float3 N, float3 V, float roughness, float metallic, float3 albedo)
-            //{
-            //    // °æ±£¡Ù°øURP ‘≠…˙ SH ª∑æ≥π‚ (ø…ÃÊªªŒ™ IBL/PRT)
-            //    float3 envDiff = SampleSH(N);
-            //    return envDiff * albedo * (1 - metallic);
-            //}
+            // ==================================================
+            // ÁéØÂ¢ÉÂÖâÁÖßËÆ°ÁÆó
+            // ==================================================
+            float3 ComputeIBL(float3 N, float3 V, float roughness, float metallic, float3 albedo)
+            {
+                // ‰ΩøÁî®URPÂÜÖÁΩÆÁöÑSHÁéØÂ¢ÉÂÖâ
+                float3 envDiff = SampleSH(N);
+                return envDiff * albedo * (1 - metallic);
+            }
 
-            //// --------------------------
-            //// ÷˜ Fragment Shader
-            //// --------------------------
-            //half4 Frag(Varyings input) : SV_Target
-            //{
-            //    // 1. ¥”…Ó∂»÷ÿΩ® ¿ΩÁ◊¯±Í
-            //    float depth = SampleSceneDepth(input.uv);
-            //    float4 posHCS = float4(input.uv * 2 - 1, depth, 1);
-            //    float4 posWS = mul(unity_CameraToWorld, mul(unity_MatrixInvVP, posHCS));
-            //    posWS /= posWS.w;
+            // --------------------------
+            // ‰∏ªÁâáÊÆµÁùÄËâ≤Âô®
+            // --------------------------
+            half4 Frag(Varyings input) : SV_Target
+            {
+                // 1. ÈáçÂª∫‰∏ñÁïåÁ©∫Èó¥‰ΩçÁΩÆ
+                float depth = SampleSceneDepth(input.uv);
+                float4 posHCS = float4(input.uv * 2 - 1, depth, 1);
+                float4 posWS = mul(unity_CameraToWorld, mul(unity_MatrixInvVP, posHCS));
+                posWS /= posWS.w;
 
-            //    // 2. Ω‚¬Î URP GBuffer
-            //    GBufferData gbuffer = SampleGBuffer(input.uv, true);
-            //    float3 albedo = gbuffer.albedo;
-            //    float3 N = gbuffer.normalWS;
-            //    float roughness = 1.0 - gbuffer.smoothness;
-            //    float metallic = gbuffer.metallic;
-            //    float3 emission = gbuffer.emission;
-            //    float occlusion = gbuffer.occlusion;
+                // 2. ÈááÊ†∑ URP GBuffer
+                GBufferData gbuffer = SampleGBuffer(input.uv, true);
+                float3 albedo = gbuffer.albedo;
+                float3 N = gbuffer.normalWS;
+                float roughness = 1.0 - gbuffer.smoothness;
+                float metallic = gbuffer.metallic;
+                float3 emission = gbuffer.emission;
+                float occlusion = gbuffer.occlusion;
 
-            //    // 3. º∆À„ ”Õº∑ΩœÚ
-            //    float3 V = SafeNormalize(_WorldSpaceCameraPos - posWS.xyz);
+                // 3. ËÆ°ÁÆóËßÇÂØüÊñπÂêë
+                float3 V = SafeNormalize(_WorldSpaceCameraPos - posWS.xyz);
 
-            //    // 4. ªÒ»° URP ÷˜π‚‘¥ (∫¨“ı”∞)
-            //    Light mainLight = GetMainLight(input.uv);
+                // 4. Ëé∑Âèñ URP ‰∏ªÂÖâÊ∫êÔºàÂ∏¶Èò¥ÂΩ±Ôºâ
+                Light mainLight = GetMainLight();
 
-            //    // --------------------------
-            //    // π‚’’¡˜ÀÆœﬂ
-            //    // --------------------------
-            //    float3 finalColor = 0;
+                // --------------------------
+                // ÂÖâÁÖßËÆ°ÁÆó
+                // --------------------------
+                float3 finalColor = 0;
 
-            //    // A. ÷±Ω”π‚ (µ±«∞£∫URP‘≠…˙ | ¿©’π£∫ÃÊªªŒ™ LTC)
-            //    finalColor += ComputeDirectLighting(mainLight, N, V, roughness, metallic, albedo);
+                // A. Áõ¥Êé•ÂÖâÁÖßÔºà‰ΩøÁî®URPÂéüÁîüÔºâ
+                finalColor += ComputeDirectLighting(mainLight, N, V, roughness, metallic, albedo);
 
-            //    // B. º‰Ω”π‚ (µ±«∞£∫VXGI | ¿©’π£∫ø…ªÏ∫œ PRT)
-            //    finalColor += ComputeVXGI_Diffuse(posWS.xyz, N);
-            //    finalColor += ComputeVXGI_Specular(posWS.xyz, V, N, roughness);
+                // B. Èó¥Êé•ÂÖâÁÖßÔºà‰ΩøÁî®VXGIÔºâ
+                finalColor += ComputeVXGI_Diffuse(posWS.xyz, N);
+                finalColor += ComputeVXGI_Specular(posWS.xyz, V, N, roughness);
 
-            //    // C. ª∑æ≥π‚ (µ±«∞£∫URP SH | ¿©’π£∫ÃÊªªŒ™ IBL)
-            //    finalColor += ComputeIBL(N, V, roughness, metallic, albedo);
+                // C. ÁéØÂ¢ÉÂÖâÁÖßÔºà‰ΩøÁî®URP SHÔºâ
+                finalColor += ComputeIBL(N, V, roughness, metallic, albedo);
 
-            //    // D. ◊‘∑¢π‚ + ’⁄µ≤
-            //    finalColor += emission;
-            //    finalColor *= occlusion;
+                // D. Ëá™ÂèëÂÖâ +  occlusion
+                finalColor += emission;
+                finalColor *= occlusion;
 
-            //    return half4(finalColor, 1.0);
-            //}
-            //ENDHLSL
+                return half4(finalColor, 1.0);
+            }
+            ENDHLSL
         }
     }
 }
