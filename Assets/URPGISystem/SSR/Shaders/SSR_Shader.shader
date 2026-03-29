@@ -72,7 +72,7 @@ Shader "Hidden/SSR_Shader"
                 float3 viewDir = normalize(float3(worldSpacePosition.xyz) - _WorldSpaceCameraPos);
                 float3 reflectionRay = reflect(viewDir, normal);
 
-                float3 reflectionRay_v = mul(_ViewMatrix, float4(reflectionRay,0));
+                float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0));
                 reflectionRay_v.z *= -1;
                 viewSpacePosition.z *= -1;
 
@@ -99,13 +99,13 @@ Shader "Hidden/SSR_Shader"
                 if (doRayMarch) {
                     float3 ray = reflectionRay_v * stride;
                     float depthDelta = 0;
-                    for (int step = 0; step < numSteps; step++)
+                    [unroll(64)] for (int step = 0; step < numSteps; step++)
                     {
                         currentPosition += ray;
                         float currentDepth;
                         float2 screenSpace;
 
-                        float4 uv = mul(_ProjectionMatrix, float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
                         uv /= uv.w;
                         uv.x *= 0.5f;
                         uv.y *= 0.5f;
@@ -143,7 +143,7 @@ Shader "Hidden/SSR_Shader"
                             break;
                         }
 
-                        float4 uv = mul(_ProjectionMatrix, float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
                         uv /= uv.w;
                         maskOut = ScreenEdgeMask(uv);
                         uv.x *= 0.5f;
@@ -243,8 +243,8 @@ Shader "Hidden/SSR_Shader"
                 normal.xyz = UnpackNormal(normal.xyz);
                 float stepS = smoothstep(minSmoothness, 1, normal.w);
                 float fresnal = 1 - dot(viewDir, -normal);
-                normal.xyz = mul(_ViewMatrix, float4(normal.xyz, 0));
-                normal.xyz = mul(_ProjectionMatrix, float4(normal.xyz, 0));
+                normal.xyz = mul(GetWorldToViewMatrix(), float4(normal.xyz, 0));
+                normal.xyz = mul(GetViewToHClipMatrix(), float4(normal.xyz, 0));
                 normal.y *= -1;
 
                 float dither;
@@ -343,6 +343,7 @@ Shader "Hidden/SSR_Shader"
 
             TEXTURE2D_X(_GBuffer2);
             TEXTURE2D_X(_MainTex);
+            TEXTURE2D_X(_CameraDepthTexture);
 
             float3 _WorldSpaceViewDir;
             float _RenderScale;
@@ -351,9 +352,11 @@ Shader "Hidden/SSR_Shader"
             int iteration;
             int reflectSky;
             float2 crossEpsilon;
+            float stride;
 
             SamplerState sampler_GBuffer2;
             SamplerState sampler_MainTex;
+            SamplerState sampler_CameraDepthTexture;
 
             float4 frag(v2f i) : SV_Target
             {
@@ -371,7 +374,7 @@ Shader "Hidden/SSR_Shader"
                 float3 viewDir = normalize(float3(worldSpacePosition.xyz) - _WorldSpaceCameraPos);
                 float3 reflectionRay = reflect(viewDir, normal);
 
-                float3 reflectionRay_v = mul(_ViewMatrix, float4(reflectionRay, 0));
+                float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0));
                 reflectionRay_v.z *= -1;
                 viewSpacePosition.z *= -1;
 
@@ -397,14 +400,14 @@ Shader "Hidden/SSR_Shader"
                     float3 ray = reflectionRay_v * stride;
                     float depthDelta = 0;
 
-                    for (int level = HIZ_START_LEVEL; level < HIZ_MAX_LEVEL; level++) {
+                    [unroll(10)] for (int level = HIZ_START_LEVEL; level < HIZ_MAX_LEVEL; level++) {
                         float2 uv = i.uv;
                         float stepSize = 1.0f / pow(2, level);
                         
-                        for (int step = 0; step < numSteps; step++) {
+                        [unroll(64)] for (int step = 0; step < numSteps; step++) {
                             currentPosition += ray * stepSize;
                             
-                            float4 uvProj = mul(_ProjectionMatrix, float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+                            float4 uvProj = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
                             uvProj /= uvProj.w;
                             uvProj.x *= 0.5f;
                             uvProj.y *= 0.5f;
@@ -447,7 +450,7 @@ Shader "Hidden/SSR_Shader"
                             break;
                         }
 
-                        float4 uv = mul(_ProjectionMatrix, float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
                         uv /= uv.w;
                         maskOut = ScreenEdgeMask(uv);
                         uv.x *= 0.5f;

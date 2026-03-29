@@ -81,7 +81,7 @@ float hash(uint2 q)
 }
 
 #ifndef SHADER_API_COMPUTE
-UNITY_DECLARE_TEX2DARRAY(_DepthPyramid);
+TEXTURE2D_ARRAY(_DepthPyramid);
 float2 _BlueNoiseTextures_TexelSize;
 Buffer<uint2> _DepthPyramidResolutions;
 #else
@@ -104,5 +104,11 @@ inline uint NextPowerOf2(uint value) {
 inline bool floatEqApprox(float a, float b) {
     const float eps = 0.00001f;
     return abs(a - b) < eps;
+}
+
+// Linear eye depth conversion
+inline float LinearEyeDepth(float depth) {
+    float z = depth * 2.0 - 1.0;
+    return (2.0 * _ProjectionParams.y) / (_ProjectionParams.z + _ProjectionParams.y - z * (_ProjectionParams.z - _ProjectionParams.y));
 }
 #endif //MYSSR_COMMON_INCLUDED
