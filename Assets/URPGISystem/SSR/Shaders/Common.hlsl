@@ -2,12 +2,14 @@
 #define MYSSR_COMMON_INCLUDED
 
 
-#pragma multi_compile
+
+
+// Matrix variables are defined in URP Core.hlsl
+
 
 float4x4 _InverseProjectionMatrix;
 float4x4 _InverseViewMatrix;
-float4x4 _ProjectionMatrix;
-float4x4 _ViewMatrix;
+
 
 int _Frame;
 int _DitherMode;
@@ -30,6 +32,7 @@ inline float ScreenEdgeMask(float2 clipPos) {
     return saturate(t2 * t1);
 }
 
+#ifndef SHADER_API_COMPUTE
 float3 getWorldPosition(float rawDepth, float2 uv) {
     float4 clipSpace = float4(uv * 2 - 1, rawDepth, 1);
     clipSpace.y *= -1;
@@ -38,6 +41,7 @@ float3 getWorldPosition(float rawDepth, float2 uv) {
     float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition);
     return worldSpacePosition.xyz;
 }
+#endif
 
 inline float RGB2Lum(float3 rgb) {
     return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b);
@@ -76,9 +80,13 @@ float hash(uint2 q)
     return float(n) * (1.0 / float(0xffffffffU));
 }
 
+#ifndef SHADER_API_COMPUTE
 UNITY_DECLARE_TEX2DARRAY(_DepthPyramid);
 float2 _BlueNoiseTextures_TexelSize;
 Buffer<uint2> _DepthPyramidResolutions;
+#else
+// In compute shaders, we'll use the source texture directly
+#endif
 
 //interleaved gradient noise
 inline float IGN(uint pixelX, uint pixelY, uint frame)

@@ -146,7 +146,7 @@ namespace NewVision.SSR
 
             if (Settings.SSRShader == null)
             {
-                Settings.SSRShader = Shader.Find("Hidden/Universal Render Pipeline/MyExtension/SSR");
+                Settings.SSRShader = Shader.Find("Hidden/SSR_Shader");
                 if (Settings.SSRShader == null)
                 {
                     return false;

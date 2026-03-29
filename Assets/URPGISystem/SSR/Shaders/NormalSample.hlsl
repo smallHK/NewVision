@@ -1,7 +1,8 @@
 #ifndef MYSSR_NORMAL_SAMPLE_INCLUDED
 #define MYSSR_NORMAL_SAMPLE_INCLUDED
 
-#pragma multi_compile _ _GBUFFER_NORMALS_OCT
+// #pragma multi_compile _ _GBUFFER_NORMALS_OCT
+// For HLSL, we'll assume _GBUFFER_NORMALS_OCT is not defined by default
 
 // Unpack 2 float of 12bit packed into a 888
 float2 Unpack888UIntToFloat2(uint3 x)
@@ -15,12 +16,12 @@ float2 Unpack888UIntToFloat2(uint3 x)
 }
 
 			// Unpack 2 float of 12bit packed into a 888
-float2 Unpack888ToFloat2(float3 x)
+float2 MySSR_Unpack888ToFloat2(float3 x)
 {
     uint3 i = (uint3) (x * 255.5); // +0.5 to fix precision error on iOS
     return Unpack888UIntToFloat2(i);
 }
-float3 UnpackNormalOctQuadEncode(float2 f)
+float3 MySSR_UnpackNormalOctQuadEncode(float2 f)
 {
     float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
 
@@ -37,9 +38,9 @@ float3 UnpackNormalOctQuadEncode(float2 f)
 float3 UnpackNormal(float3 normal)
 {
 #if defined(_GBUFFER_NORMALS_OCT)
-    float2 remappedOctNormalWS = Unpack888ToFloat2(normal); // values between [ 0,  1]
+    float2 remappedOctNormalWS = MySSR_Unpack888ToFloat2(normal); // values between [ 0,  1]
     float2 octNormalWS = remappedOctNormalWS.xy * 2.0 - 1.0;    // values between [-1, +1]
-    normal = UnpackNormalOctQuadEncode(octNormalWS);
+    normal = MySSR_UnpackNormalOctQuadEncode(octNormalWS);
 #else
     normal = normalize(normal);
 #endif
