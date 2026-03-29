@@ -1,0 +1,31 @@
+#pragma kernel CSMain
+
+Texture3D<float4> _InputTex;
+RWTexture3D<float4> _OutputTex;
+int _InputMip;
+int _OutputMip;
+
+[numthreads(8,8,8)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    int3 inputRes = int3(_InputTex.GetDimensions(_InputMip));
+    int3 outputRes = int3(_OutputTex.GetDimensions(_OutputMip));
+    if (all(id < outputRes))
+    {
+        int3 inputId = id * 2;
+        float4 sum = 0;
+        
+        // 简单的 Box 滤波下采样
+        for (int z = 0; z < 2; z++)
+        for (int y = 0; y < 2; y++)
+        for (int x = 0; x < 2; x++)
+        {
+            int3 idx = inputId + int3(x, y, z);
+            if (all(idx < inputRes))
+                sum += _InputTex[uint3(idx), _InputMip];
+        }
+        
+        _OutputTex[id] = sum / 8.0f;
+    }
+   
+}
