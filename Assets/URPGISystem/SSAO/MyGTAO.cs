@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-namespace NewVision
+namespace NewVision.SSAO
 {
     [Serializable]
     internal class SSAOSettings

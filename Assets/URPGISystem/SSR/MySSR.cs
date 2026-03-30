@@ -51,7 +51,7 @@ namespace NewVision.SSR
     }
 
     [System.Serializable]
-    internal class SSRSettings
+    public class SSRSettings
     {
         [HideInInspector] public Material SSR_Instance;
         [HideInInspector] public Shader SSRShader;

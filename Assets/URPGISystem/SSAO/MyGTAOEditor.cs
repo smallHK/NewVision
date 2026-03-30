@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-namespace NewVision
+namespace NewVision.SSAO
 {
     [CustomEditor(typeof(MyGTAO))]
     internal class MyGTAOEditor : Editor
