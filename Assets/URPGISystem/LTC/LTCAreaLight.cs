@@ -143,7 +143,14 @@ namespace NewVision.LTC
             }
             if (_shadowMapDummy != null)
             {
-                DestroyImmediate(_shadowMapDummy);
+                if (Application.isPlaying)
+                {
+                    Destroy(_shadowMapDummy);
+                }
+                else
+                {
+                    DestroyImmediate(_shadowMapDummy);
+                }
                 _shadowMapDummy = null;
             }
         }
@@ -157,6 +164,8 @@ namespace NewVision.LTC
             {
                 m_MeshFilter = GetComponent<MeshFilter>();
             }
+            
+            m_LightVertices = Matrix4x4.identity;
             
             if (m_MeshFilter != null && m_MeshFilter.sharedMesh != null)
             {

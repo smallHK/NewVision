@@ -27,6 +27,12 @@ namespace NewVision.LTC
             mAreaLightVertices = new Matrix4x4[mMaxAreaLightCount];
             mAreaLightRenderShadow = new float[mMaxAreaLightCount];
             mAreaLightTextureIndices = new float[mMaxAreaLightCount];
+            mAreaLightShadowMaps = new RenderTexture[mMaxAreaLightCount];
+            mAreaLightShadowMapDummies = new Texture2D[mMaxAreaLightCount];
+            mAreaLightShadowParams = new Vector4[mMaxAreaLightCount];
+            mAreaLightShadowProjMatrices = new Matrix4x4[mMaxAreaLightCount];
+            mAreaLightShadowNearClips = new float[mMaxAreaLightCount];
+            mAreaLightShadowFarClips = new float[mMaxAreaLightCount];
         }
 
         /// <summary>
@@ -79,16 +85,22 @@ namespace NewVision.LTC
                     if (!light.m_RenderShadow)
                     {
                         mAreaLightRenderShadow[index] = 0;
+                        mAreaLightShadowMaps[index] = null;
+                        mAreaLightShadowMapDummies[index] = null;
+                        mAreaLightShadowParams[index] = Vector4.zero;
+                        mAreaLightShadowProjMatrices[index] = Matrix4x4.identity;
+                        mAreaLightShadowNearClips[index] = 0;
+                        mAreaLightShadowFarClips[index] = 0;
                     }
                     else
                     {
                         mAreaLightRenderShadow[index] = 1;
-                        mAreaLightShadowMapDummy = light.mShadowMapDummy;
-                        mAreaLightShadowMap = light.m_ShadowMap;
-                        mAreaLightShadowParams = light.GetShadowParams();
-                        mAreaLightShadowNearClip = light.GetShadowNearClip();
-                        mAreaLightShadowFarClip = light.GetShadowFarClip();
-                        mAreaLightShadowProjMatrix = light.GetProjMatrix();
+                        mAreaLightShadowMapDummies[index] = light.mShadowMapDummy;
+                        mAreaLightShadowMaps[index] = light.m_ShadowMap;
+                        mAreaLightShadowParams[index] = light.GetShadowParams();
+                        mAreaLightShadowProjMatrices[index] = light.GetProjMatrix();
+                        mAreaLightShadowNearClips[index] = light.GetShadowNearClip();
+                        mAreaLightShadowFarClips[index] = light.GetShadowFarClip();
                     }
                     index++;
                 }
@@ -97,12 +109,14 @@ namespace NewVision.LTC
                 cmd.SetGlobalFloatArray(AreaLightTextureIndicesID, mAreaLightTextureIndices);
                 cmd.SetGlobalVectorArray(AreaLightColorsID, mAreaLightColors);
                 cmd.SetGlobalMatrixArray(AreaLightVerticesID, mAreaLightVertices);
-                cmd.SetGlobalVector(AreaLightShadowParamsID, mAreaLightShadowParams);
-                cmd.SetGlobalFloat(AreaLightShadowNearClipID, mAreaLightShadowNearClip);
-                cmd.SetGlobalFloat(AreaLightShadowFarClipID, mAreaLightShadowFarClip);
-                cmd.SetGlobalMatrix(AreaLightShadowProjMatrixID, mAreaLightShadowProjMatrix);
-                cmd.SetGlobalTexture(AreaLightShadowMapID, mAreaLightShadowMap);
-                cmd.SetGlobalTexture(AreaLightShadowMapDummyID, mAreaLightShadowMapDummy);
+                cmd.SetGlobalVectorArray(AreaLightShadowParamsID, mAreaLightShadowParams);
+                cmd.SetGlobalFloatArray(AreaLightShadowNearClipID, mAreaLightShadowNearClips);
+                cmd.SetGlobalFloatArray(AreaLightShadowFarClipID, mAreaLightShadowFarClips);
+                cmd.SetGlobalMatrixArray(AreaLightShadowProjMatrixID, mAreaLightShadowProjMatrices);
+                
+                mPassMaterial.SetTexture(AreaLightShadowMapID, mAreaLightShadowMaps[0]);
+                mPassMaterial.SetTexture(AreaLightShadowMapDummyID, mAreaLightShadowMapDummies[0]);
+                
                 cmd.Blit(mSource, mTemporaryColorTexture, mPassMaterial, 0);
                 cmd.Blit(mTemporaryColorTexture, mSource);
             }
@@ -202,32 +216,32 @@ namespace NewVision.LTC
         /// <summary>
         /// 区域光阴影近裁剪面
         /// </summary>
-        private float mAreaLightShadowNearClip;
+        private readonly float[] mAreaLightShadowNearClips;
         
         /// <summary>
         /// 区域光阴影远裁剪面
         /// </summary>
-        private float mAreaLightShadowFarClip;
+        private readonly float[] mAreaLightShadowFarClips;
         
         /// <summary>
         /// 区域光阴影参数
         /// </summary>
-        private Vector4 mAreaLightShadowParams;
+        private readonly Vector4[] mAreaLightShadowParams;
         
         /// <summary>
         /// 区域光阴影投影矩阵
         /// </summary>
-        private Matrix4x4 mAreaLightShadowProjMatrix;
+        private readonly Matrix4x4[] mAreaLightShadowProjMatrices;
         
         /// <summary>
         /// 区域光阴影贴图占位符
         /// </summary>
-        private Texture2D mAreaLightShadowMapDummy;
+        private readonly Texture2D[] mAreaLightShadowMapDummies;
         
         /// <summary>
         /// 区域光阴影贴图
         /// </summary>
-        private RenderTexture mAreaLightShadowMap;
+        private readonly RenderTexture[] mAreaLightShadowMaps;
         
         /// <summary>
         /// 漫反射变换逆矩阵纹理ID

@@ -166,33 +166,66 @@ namespace NewVision.LTC
         
         /// <summary>
         /// 计算漫反射变换逆矩阵
+        /// Disney漫反射使用Lambertian，变换矩阵为单位矩阵
         /// </summary>
         /// <param name="v">方向向量</param>
         /// <returns>变换逆矩阵</returns>
         private static Vector4 CalculateTransformInvDiffuse(Vector3 v)
         {
-            return new Vector4(1.0f, 0.0f, 0.0f, 0.0f);
+            float m11 = 1.0f;
+            float m12 = 0.0f;
+            float m22 = 1.0f;
+            return new Vector4(m11, m12, m22, 1.0f / (m11 * m22 - m12 * m12));
         }
         
         /// <summary>
         /// 计算高光变换逆矩阵
+        /// Disney GGX的LTC矩阵
         /// </summary>
         /// <param name="v">方向向量</param>
         /// <returns>变换逆矩阵</returns>
         private static Vector4 CalculateTransformInvSpecular(Vector3 v)
         {
-            return new Vector4(1.0f, 0.0f, 0.0f, 0.0f);
+            float NdotV = v.y;
+            float roughness = 0.5f;
+            
+            float alpha = roughness * roughness;
+            float alpha2 = alpha * alpha;
+            
+            float a = 1.0f / (1.0f + NdotV);
+            float b = alpha2 * a;
+            
+            float m11 = 1.0f + b * NdotV;
+            float m12 = -b * v.x * v.z;
+            float m22 = 1.0f + b * (1.0f - v.y * v.y);
+            
+            float det = m11 * m22 - m12 * m12;
+            return new Vector4(m11, m12, m22, 1.0f / det);
         }
         
         /// <summary>
         /// 计算菲涅尔值
+        /// Schlick近似法计算菲涅尔
         /// </summary>
         /// <param name="cosTheta">余弦角度</param>
         /// <param name="roughness">粗糙度</param>
         /// <returns>菲涅尔值</returns>
         private static Vector4 CalculateFresnel(float cosTheta, float roughness)
         {
-            return new Vector4(1.0f, 0.0f, 0.0f, 0.0f);
+            float F0 = 0.04f;
+            float oneMinusCosTheta = 1.0f - cosTheta;
+            float oneMinusCosTheta5 = oneMinusCosTheta * oneMinusCosTheta;
+            oneMinusCosTheta5 = oneMinusCosTheta5 * oneMinusCosTheta5 * oneMinusCosTheta;
+            
+            float F = F0 + (1.0f - F0) * oneMinusCosTheta5;
+            
+            float roughness2 = roughness * roughness;
+            float roughness4 = roughness2 * roughness2;
+            
+            float specularScale = 1.0f / Mathf.Max(roughness4, 0.0001f);
+            specularScale = Mathf.Min(specularScale, 1000.0f);
+            
+            return new Vector4(F, 1.0f, specularScale, roughness);
         }
     }
 }

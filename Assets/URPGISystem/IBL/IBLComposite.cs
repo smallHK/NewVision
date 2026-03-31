@@ -11,6 +11,12 @@ namespace NewVision.IBL
             public Material blitMaterial;
             public RenderTargetHandle tempRTHandle;
             public RenderTargetIdentifier blitSrc;
+            private bool isRendererDeferred = false;
+
+            public void Setup(bool deferred)
+            {
+                isRendererDeferred = deferred;
+            }
 
             public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
             {
@@ -18,6 +24,15 @@ namespace NewVision.IBL
                 cmd.GetTemporaryRT(tempRTHandle.id, rtDesc);
 
                 blitSrc = renderingData.cameraData.renderer.cameraColorTarget;
+                
+                if (isRendererDeferred)
+                {
+                    ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal | ScriptableRenderPassInput.Color);
+                }
+                else
+                {
+                    ConfigureInput(ScriptableRenderPassInput.Depth);
+                }
             }
 
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
@@ -55,6 +70,8 @@ namespace NewVision.IBL
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
+            bool isDeferred = renderingData.cameraData.renderer is UniversalRenderer;
+            m_ScriptablePass.Setup(isDeferred);
             renderer.EnqueuePass(m_ScriptablePass);
         }
     }

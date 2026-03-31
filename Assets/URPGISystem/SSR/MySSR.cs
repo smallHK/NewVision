@@ -78,28 +78,42 @@ namespace NewVision.SSR
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
+            // 检查是否启用SSR
             if (!renderingData.cameraData.postProcessEnabled || !Enabled)
             {
                 return;
             }
+            
+            // 检查是否找到SSR shader
             if (!GetMaterial())
             {
                 Debug.LogError("Cannot find ssr shader!");
                 return;
             }
 
+            // 设置材质属性
             SetMaterialProperties(in renderingData);
+            
+            // 设置渲染目标
             renderPass.Source = renderer.cameraColorTarget;
-            Settings.SSR_Instance.SetVector("_WorldSpaceViewDir", renderingData.cameraData.camera.transform.forward);
+            
+            // 传递相机方向向量
+            Settings.SSR_Instance.SetVector("_WorldSpaceViewDir", -renderingData.cameraData.camera.transform.forward);
+            
+            // 确保深度纹理可用（SSR依赖深度信息）
             renderingData.cameraData.camera.depthTextureMode |= (DepthTextureMode.MotionVectors | DepthTextureMode.Depth | DepthTextureMode.DepthNormals);
+            
+            // 设置渲染缩放
             float renderscale = renderingData.cameraData.isSceneViewCamera ? 1 : renderingData.cameraData.renderScale;
             renderPass.RenderScale = renderscale;
 
-            Settings.SSR_Instance.SetFloat("stride", Settings.stepStrideLength);
-            Settings.SSR_Instance.SetFloat("numSteps", Settings.maxSteps);
-            Settings.SSR_Instance.SetFloat("minSmoothness", Settings.minSmoothness);
-            Settings.SSR_Instance.SetInt("reflectSky", Settings.reflectSky ? 1 : 0);
+            // 传递SSR参数到shader
+            Settings.SSR_Instance.SetFloat("stride", Settings.stepStrideLength); // 光线步进步长
+            Settings.SSR_Instance.SetFloat("numSteps", Settings.maxSteps); // 最大光线追踪步数
+            Settings.SSR_Instance.SetFloat("minSmoothness", Settings.minSmoothness); // 光滑度阈值
+            Settings.SSR_Instance.SetInt("reflectSky", Settings.reflectSky ? 1 : 0); // 是否反射天空
 
+            // 将SSR pass添加到渲染管线
             renderer.EnqueuePass(renderPass);
         }
 
@@ -130,9 +144,13 @@ namespace NewVision.SSR
             ssrFeatureInstance = this;
             renderPass = new MySSRPass()
             {
+                // 设置渲染时机为不透明物体渲染之后，透明物体渲染之前
+                // 这样可以确保SSR能够正确获取场景的深度和颜色信息
                 renderPassEvent = RenderPassEvent.BeforeRenderingTransparents,
                 Settings = this.Settings
             };
+            
+            // 确保获取SSR材质
             GetMaterial();
         }
 
@@ -247,29 +265,43 @@ namespace NewVision.SSR
 
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            // 定义pass索引
+            const int hiZPass = 2;      // HiZ光线追踪pass
+            const int linearPass = 0;   // 线性光线追踪pass
+            const int compPass = 1;     // 合成pass
 
-            const int hiZPass = 2;
-            const int linearPass = 0;
-            const int compPass = 1;
-
+            // 创建命令缓冲区
             CommandBuffer commandBuffer = CommandBufferPool.Get("Screen space reflections");
+            
+            // 1. 步骤1：将原始画面复制到临时纹理
+            // 这是为了在合成时使用原始画面作为基础
             commandBuffer.Blit(Source, tempPaddedSourceID, PaddedScale, Vector2.zero);
 
+            // 2. 步骤2：执行光线追踪
+            // 根据设置选择不同的光线追踪模式
             if (Settings.tracingMode == RaytraceModes.HiZTracing)
             {
+                // 使用HiZ（深度金字塔）加速的光线追踪
                 commandBuffer.Blit(null, reflectionMapID, Settings.SSR_Instance, hiZPass);
             }
             else
             {
+                // 使用传统的线性光线追踪
                 commandBuffer.Blit(null, reflectionMapID, Settings.SSR_Instance, linearPass);
             }
 
-            //compose reflection with main texture
+            // 3. 步骤3：合成反射结果
+            // 将反射效果与原始画面合成
             commandBuffer.Blit(tempPaddedSourceID, Source, Settings.SSR_Instance, compPass);
 
+            // 4. 步骤4：清理临时资源
             commandBuffer.ReleaseTemporaryRT(reflectionMapID);
             commandBuffer.ReleaseTemporaryRT(tempPaddedSourceID);
+            
+            // 5. 步骤5：执行命令缓冲区
             context.ExecuteCommandBuffer(commandBuffer);
+            
+            // 6. 步骤6：释放命令缓冲区
             CommandBufferPool.Release(commandBuffer);
         }
 

@@ -86,7 +86,7 @@ Shader "Hidden/VXGI/Voxelization"
             [maxvertexcount(3)]
             void geom(triangle v2g i[3], inout TriangleStream<g2f> triStream)
             {
-                float3 normal = normalize(abs(cross(i[1].vertex - i[0].vertex, i[2].vertex - i[0].vertex)));
+                float3 normal = normalize(abs(cross(i[1].vertex.xyz - i[0].vertex.xyz, i[2].vertex.xyz - i[0].vertex.xyz)));
                 uint axis = AXIS_Z;
                 if (normal.x > normal.y && normal.x > normal.z) axis = AXIS_X;
                 else if (normal.y > normal.x && normal.y > normal.z) axis = AXIS_Y;
@@ -129,30 +129,25 @@ Shader "Hidden/VXGI/Voxelization"
 #endif
                 float3 albedo = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, i.uv).rgb * _Color.rgb;
                 float3 color = albedo * (1 - metallic * 0.5);
-                float3 envSH = SampleSH(float4(i.normal, 1.0));
+                float3 envSH = SampleSH(i.normal);
 
-                // 获取URP主光源
                 Light mainLight = GetMainLight();
 
-                // 计算主光源直接光照
                 float NdotL = saturate(dot(i.normal, mainLight.direction));
                 float3 directLight = mainLight.color * NdotL * mainLight.distanceAttenuation * mainLight.shadowAttenuation;
 
-                // 写入体素
                 float3 voxelPos = (i.position.xyz * 0.5 + 0.5) * _VoxelResolution;
                 voxelPos = RestoreAxis(voxelPos, i.axis);
-                int3 voxelIdx = int3(floor(voxelPos));
+                int3 voxelIdx = clamp(int3(round(voxelPos)), int3(0, 0, 0), int3(_VoxelResolution - 1, _VoxelResolution - 1, _VoxelResolution - 1));
                 
-                if (all(voxelIdx >= 0) && all(voxelIdx < _VoxelResolution))
-                {
-                    float4 voxelData = float4(
-                        color * directLight +  // 主光源直接光照
-                        emission +             // 自发光
-                        envSH * 0.5,           // 环境光
-                        1.0
-                    );
-                    _VoxelRadiance[voxelIdx] = voxelData;
-                }
+                float4 voxelData = float4(
+                    color * directLight +
+                    emission +
+                    envSH * 0.5,
+                    1.0
+                );
+                _VoxelRadiance[voxelIdx] = voxelData;
+                
                 return 0.0;
             }
             ENDHLSL

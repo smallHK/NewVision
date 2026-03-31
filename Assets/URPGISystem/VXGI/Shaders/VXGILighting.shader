@@ -59,16 +59,14 @@ Shader "Hidden/VXGI/VXGILighting"
             GBufferData SampleGBuffer(float2 uv, bool depthOnly) {
                 GBufferData gbuffer;
                 
-                // 采样 GBuffer 纹理
                 float4 gbuffer0 = SAMPLE_TEXTURE2D(_GBuffer0, sampler_GBuffer0, uv);
                 float4 gbuffer1 = SAMPLE_TEXTURE2D(_GBuffer1, sampler_GBuffer1, uv);
                 float4 gbuffer2 = SAMPLE_TEXTURE2D(_GBuffer2, sampler_GBuffer2, uv);
                 
-                // 解析 GBuffer 数据
                 gbuffer.albedo = gbuffer0.rgb;
-                gbuffer.normalWS = normalize(gbuffer0.a * 2.0 - 1.0);
-                gbuffer.metallic = gbuffer1.r;
-                gbuffer.smoothness = gbuffer1.g;
+                gbuffer.normalWS = normalize(gbuffer1.rgb * 2.0 - 1.0);
+                gbuffer.metallic = gbuffer0.a;
+                gbuffer.smoothness = gbuffer1.a;
                 gbuffer.emission = gbuffer2.rgb;
                 gbuffer.occlusion = gbuffer2.a;
                 
@@ -94,9 +92,29 @@ Shader "Hidden/VXGI/VXGILighting"
             // ==================================================
             float3 ComputeDirectLighting(Light light, float3 N, float3 V, float roughness, float metallic, float3 albedo)
             {
-                // 计算直接光照
-                float3 directLight = light.color * saturate(dot(N, light.direction)) * light.distanceAttenuation * light.shadowAttenuation;
-                return directLight * albedo;
+                float3 L = light.direction;
+                float3 H = normalize(V + L);
+                
+                float NdotL = saturate(dot(N, L));
+                float NdotV = saturate(dot(N, V));
+                float NdotH = saturate(dot(N, H));
+                float VdotH = saturate(dot(V, H));
+                
+                float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+                float3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+                
+                float k = roughness * roughness / 2.0;
+                float G = NdotL * NdotV / ((NdotL * (1.0 - k) + k) * (NdotV * (1.0 - k) + k) + 0.001);
+                
+                float r2 = roughness * roughness;
+                float denom = NdotH * NdotH * (r2 - 1.0) + 1.0;
+                float D = r2 / (3.14159265 * denom * denom + 0.0001);
+                
+                float3 specular = D * G * F / (4.0 * NdotV * NdotL + 0.001);
+                float3 diffuse = albedo * (1.0 - metallic) / 3.14159265;
+                
+                float3 directLight = (diffuse + specular) * light.color * NdotL * light.distanceAttenuation * light.shadowAttenuation;
+                return directLight;
             }
 
             // ==================================================
@@ -128,17 +146,16 @@ Shader "Hidden/VXGI/VXGILighting"
 
             float3 ComputeVXGI_Diffuse(float3 posWS, float3 normalWS)
             {
-                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
+                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz / _VoxelResolution;
                 float3 normalVS = normalize(mul((float3x3)_WorldToVoxel, normalWS));
                 
-                // 简单的锥追踪（后续可扩展为半球采样）
                 float3 indirect = ConeTrace(posVS, normalVS, _ConeAperture, _ConeTraceSteps);
                 return indirect * _IndirectDiffuseIntensity;
             }
 
             float3 ComputeVXGI_Specular(float3 posWS, float3 viewWS, float3 normalWS, float roughness)
             {
-                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz;
+                float3 posVS = mul(_WorldToVoxel, float4(posWS, 1)).xyz / _VoxelResolution;
                 float3 reflVS = normalize(mul((float3x3)_WorldToVoxel, reflect(-viewWS, normalWS)));
                 
                 float aperture = _ConeAperture * (roughness + 0.1f);

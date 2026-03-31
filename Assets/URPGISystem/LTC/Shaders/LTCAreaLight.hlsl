@@ -1,3 +1,6 @@
+#ifndef LTC_AREA_LIGHT_INCLUDED
+#define LTC_AREA_LIGHT_INCLUDED
+
 #define MAX_AREA_LIGHT_COUNT 16
 
 int      _AreaLightCount;
@@ -5,6 +8,16 @@ float    _AreaLightRenderShadow[MAX_AREA_LIGHT_COUNT];
 float    _AreaLightTextureIndices[MAX_AREA_LIGHT_COUNT];
 float4   _AreaLightColors[MAX_AREA_LIGHT_COUNT];
 float4x4 _AreaLightVertices[MAX_AREA_LIGHT_COUNT];
+
+float4   _AreaLightShadowParams[MAX_AREA_LIGHT_COUNT];
+float    _AreaLightShadowNearClip[MAX_AREA_LIGHT_COUNT];
+float    _AreaLightShadowFarClip[MAX_AREA_LIGHT_COUNT];
+float4x4 _AreaLightShadowProjMatrix[MAX_AREA_LIGHT_COUNT];
+
+TEXTURE2D(_AreaLightShadowMap);
+SAMPLER(sampler_AreaLightShadowMap);
+TEXTURE2D(_AreaLightShadowMapDummy);
+SAMPLER(sampler_AreaLightShadowMapDummy);
 
 struct AreaLight
 {
@@ -49,3 +62,35 @@ float GetAreaLightTextureIndex(int index)
 {
     return _AreaLightTextureIndices[index];
 }
+
+float4 GetAreaLightShadowParams(int index)
+{
+    return _AreaLightShadowParams[index];
+}
+
+float GetAreaLightShadowNearClip(int index)
+{
+    return _AreaLightShadowNearClip[index];
+}
+
+float GetAreaLightShadowFarClip(int index)
+{
+    return _AreaLightShadowFarClip[index];
+}
+
+float4x4 GetAreaLightShadowProjMatrix(int index)
+{
+    return _AreaLightShadowProjMatrix[index];
+}
+
+float SampleAreaLightShadowMap(float2 uv)
+{
+    return SAMPLE_TEXTURE2D(_AreaLightShadowMap, sampler_AreaLightShadowMap, uv).r;
+}
+
+float SampleAreaLightShadowMapDummy(float2 uv)
+{
+    return SAMPLE_TEXTURE2D(_AreaLightShadowMapDummy, sampler_AreaLightShadowMapDummy, uv).r;
+}
+
+#endif

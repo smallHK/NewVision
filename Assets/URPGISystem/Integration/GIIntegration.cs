@@ -32,7 +32,8 @@ namespace NewVision.Integration
 
         // 各个模块的实例
         private NewVision.LTC.LTCAreaLightFeature _ltcFeature;
-        private NewVision.PRT.PRTComposite _prtFeature;
+        private NewVision.PRT.PRTRelight _prtRelightFeature;
+        private NewVision.PRT.PRTComposite _prtCompositeFeature;
         private NewVision.IBL.IBLComposite _iblFeature;
         private NewVision.SSR.MySSR _ssrFeature;
         private NewVision.VXGI.MyVXGI _vxgiFeature;
@@ -43,7 +44,8 @@ namespace NewVision.Integration
         {
             // 初始化各个模块
             _ltcFeature = new NewVision.LTC.LTCAreaLightFeature();
-            _prtFeature = new NewVision.PRT.PRTComposite();
+            _prtRelightFeature = new NewVision.PRT.PRTRelight();
+            _prtCompositeFeature = new NewVision.PRT.PRTComposite();
             _iblFeature = new NewVision.IBL.IBLComposite();
             _ssrFeature = new NewVision.SSR.MySSR();
             _vxgiFeature = new NewVision.VXGI.MyVXGI();
@@ -110,7 +112,8 @@ namespace NewVision.Integration
 
             if (settings.enablePRT)
             {
-                _prtFeature.AddRenderPasses(renderer, ref renderingData);
+                _prtRelightFeature.AddRenderPasses(renderer, ref renderingData);
+                _prtCompositeFeature.AddRenderPasses(renderer, ref renderingData);
             }
 
             if (settings.enableVXGI)

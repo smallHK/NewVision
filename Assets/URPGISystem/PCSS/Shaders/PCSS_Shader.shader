@@ -302,7 +302,7 @@ Shader "Hidden/PCSS/PCSS_Shader"
             }
         }
 
-        avgBlockerDepth = blockerSum / numBlockers;
+        avgBlockerDepth = (numBlockers > 0.0) ? (blockerSum / numBlockers) : depth;
 
     #if defined(UNITY_REVERSED_Z)
         avgBlockerDepth = 1.0 - avgBlockerDepth;
@@ -421,8 +421,9 @@ Shader "Hidden/PCSS/PCSS_Shader"
         float3 dy = ddy(coordCascade0.xyz);
 
         receiverPlaneDepthBiasCascade0.x = dy.y * dx.z - dx.y * dy.z;
-        receiverPlaneDepthBiasCascade0.y = dx.x * dy.z - dy.x * dx.z;
-        receiverPlaneDepthBiasCascade0 *= 1.0f / ((dx.x * dy.y) - (dx.y * dy.x));
+        receiverPlaneDepthBiasCascade0.y = dx.x * dy.z - dy.x * dy.z;
+        float denominator = (dx.x * dy.y) - (dx.y * dy.x);
+        receiverPlaneDepthBiasCascade0 *= (abs(denominator) > 1e-6) ? (1.0f / denominator) : 0.0f;
 
         float biasMultiply = dot(cascadeWeights, unity_ShadowCascadeScales);
         receiverPlaneDepthBias = receiverPlaneDepthBiasCascade0 * biasMultiply;
@@ -443,14 +444,20 @@ Shader "Hidden/PCSS/PCSS_Shader"
         float shadow = PCSS_Main(coord, receiverPlaneDepthBias, random, scale);
 
     #if defined(USE_CASCADE_BLENDING) && !defined(SHADOWS_SPLIT_SPHERES) && !defined(SHADOWS_SINGLE_CASCADE)
-        float4 z4 = (float4(vpos.z, vpos.z, vpos.z, vpos.z) - _LightSplitsNear) / (_LightSplitsFar - _LightSplitsNear);
+        float4 cascadeRange = _LightSplitsFar - _LightSplitsNear;
+        cascadeRange = max(cascadeRange, 1e-6);
+        float4 z4 = (float4(vpos.z, vpos.z, vpos.z, vpos.z) - _LightSplitsNear) / cascadeRange;
         float alpha = dot(z4 * cascadeWeights, float4(1, 1, 1, 1));
 
         if (alpha > 1.0 - CascadeBlendDistance)
         {
             alpha = (alpha - (1.0 - CascadeBlendDistance)) / CascadeBlendDistance;
 
-            cascadeWeights = fixed4(0, cascadeWeights.xyz);
+            float4 nextCascadeWeights = float4(0, 0, 0, 0);
+            if (cascadeWeights.x > 0.5) nextCascadeWeights = float4(0, 1, 0, 0);
+            else if (cascadeWeights.y > 0.5) nextCascadeWeights = float4(0, 0, 1, 0);
+            else if (cascadeWeights.z > 0.5) nextCascadeWeights = float4(0, 0, 0, 1);
+            cascadeWeights = nextCascadeWeights;
             coord = GetShadowCoord(wpos, cascadeWeights);
 
             scale = GetScale(cascadeWeights);
@@ -460,7 +467,7 @@ Shader "Hidden/PCSS/PCSS_Shader"
             receiverPlaneDepthBias = receiverPlaneDepthBiasCascade0 * biasMultiply;
 
     #if defined(USE_STATIC_BIAS)
-            fractionalSamplingError = 2.0 * dot(_MainLightShadowmapTexture_TexelSize.xy, abs(receiverPlaneDepthBias));
+            float fractionalSamplingError = 2.0 * dot(_MainLightShadowmapTexture_TexelSize.xy, abs(receiverPlaneDepthBias));
             fractionalSamplingError = min(fractionalSamplingError, RECEIVER_PLANE_MIN_FRACTIONAL_ERROR);
 
     #if defined(UNITY_REVERSED_Z)

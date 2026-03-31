@@ -73,7 +73,11 @@ namespace NewVision.LTC
         /// <param name="disposing">是否正在释放</param>
         protected override void Dispose(bool disposing)
         {
-            mPass.Dispose();
+            if (mPass != null)
+            {
+                mPass.Dispose();
+                mPass = null;
+            }
         }
         
     }

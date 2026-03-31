@@ -18,6 +18,7 @@ Shader "NewVision/IBL/Composite"
             #pragma fragment frag
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "brdf.hlsl"
 
             struct appdata
@@ -44,15 +45,17 @@ Shader "NewVision/IBL/Composite"
             samplerCUBE _IrradianceMap;
             samplerCUBE _PrefilterMap;
             sampler2D _BRDFLut;
+            
             TEXTURE2D_X(_GBuffer0);
-            TEXTURE2D_X_HALF(_GBuffer1);
-            TEXTURE2D_X_HALF(_GBuffer2);
-            TEXTURE2D_X(_CameraDepthTexture);
-            SamplerState my_point_clamp_sampler;
+            TEXTURE2D_X(_GBuffer1);
+            TEXTURE2D_X(_GBuffer2);
+            SAMPLER(sampler_GBuffer0);
+            SAMPLER(sampler_GBuffer1);
+            SAMPLER(sampler_GBuffer2);
 
             float4 GetFragmentWorldPos(float2 screenPos)
             {
-                float sceneRawDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, my_point_clamp_sampler, screenPos).r;
+                float sceneRawDepth = SampleSceneDepth(screenPos);
                 float4 ndc = float4(screenPos.x * 2 - 1, screenPos.y * 2 - 1, sceneRawDepth, 1);
                 #if UNITY_UV_STARTS_AT_TOP
                     ndc.y *= -1;
@@ -62,18 +65,32 @@ Shader "NewVision/IBL/Composite"
 
                 return worldPos;
             }
+            
+            float3 UnpackNormalFromGBuffer(float3 packedNormal)
+            {
+                #if defined(_GBUFFER_NORMALS_OCT)
+                    float2 octNormal = packedNormal.xy * 2.0 - 1.0;
+                    float3 n = float3(octNormal.x, octNormal.y, 1.0 - abs(octNormal.x) - abs(octNormal.y));
+                    float t = max(-n.z, 0.0);
+                    n.xy += n.xy >= 0.0 ? -t.xx : t.xx;
+                    return normalize(n);
+                #else
+                    return normalize(packedNormal * 2.0 - 1.0);
+                #endif
+            }
 
             float4 frag (v2f i) : SV_Target
             {
                 float4 color = tex2D(_MainTex, i.uv);
 
-                // decode from gbuffer
                 float4 worldPos = GetFragmentWorldPos(i.uv);
-                float3 albedo = SAMPLE_TEXTURE2D_X_LOD(_GBuffer0, my_point_clamp_sampler, i.uv, 0).xyz;
-                float3 normal = SAMPLE_TEXTURE2D_X_LOD(_GBuffer2, my_point_clamp_sampler, i.uv, 0).xyz;
-                float3 metallicRoughness = SAMPLE_TEXTURE2D_X_LOD(_GBuffer1, my_point_clamp_sampler, i.uv, 0).xyz;
-                float metallic = metallicRoughness.r;
-                float roughness = metallicRoughness.g;
+                float3 albedo = SAMPLE_TEXTURE2D_X(_GBuffer0, sampler_GBuffer0, i.uv).xyz;
+                float3 packedNormal = SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, i.uv).xyz;
+                float3 normal = UnpackNormalFromGBuffer(packedNormal);
+                float4 metallicSmoothnessAO = SAMPLE_TEXTURE2D_X(_GBuffer1, sampler_GBuffer1, i.uv);
+                float metallic = metallicSmoothnessAO.r;
+                float smoothness = metallicSmoothnessAO.a;
+                float roughness = 1.0 - smoothness;
 
                 // view direction
                 float3 viewDir = normalize(_WorldSpaceCameraPos - worldPos.xyz);

@@ -54,7 +54,10 @@ namespace NewVision.PCSS
 
         protected override void Dispose(bool disposing)
         {
-            CoreUtils.Destroy(_material);
+            if (disposing)
+            {
+                CoreUtils.Destroy(_material);
+            }
         }
     }
 
@@ -119,6 +122,7 @@ namespace NewVision.PCSS
 
             // 柔和度 (根据阴影距离调整)
             float shadowDist = renderingData.cameraData.maxShadowDistance;
+            if (shadowDist < 0.001f) shadowDist = 1f;
             cmd.SetGlobalFloat(SoftnessId, _settings.Softness / 64f / Mathf.Sqrt(shadowDist));
             cmd.SetGlobalFloat(SoftnessFalloffId, Mathf.Exp(_settings.SoftnessFalloff));
 

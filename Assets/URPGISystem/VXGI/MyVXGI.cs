@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -46,18 +46,23 @@ namespace NewVision.VXGI
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
-            // 仅在延迟渲染模式下工作
-            if (renderingData.cameraData.renderer is not UniversalRenderer universalRenderer)
+            if (renderingData.cameraData.cameraType == CameraType.Preview)
                 return;
 
-            // 传递相机引用
-            m_VoxelizationPass.SetCamera(renderingData.cameraData.camera);
+            if (m_VoxelizationPass == null || m_VoxelMipmapPass == null || m_VXGILightingPass == null)
+                return;
 
-            // 传递体素纹理引用
+            if (voxelizationShader == null || lightingShader == null || voxelMipmapCS == null)
+                return;
+
+            m_VoxelizationPass.SetCamera(renderingData.cameraData.camera);
+            m_VoxelizationPass.SetParams(voxelBound, voxelResolution, followCamera);
+
             m_VoxelMipmapPass.SetVoxelTexture(m_VoxelizationPass.GetVoxelRadianceTexture());
 
             m_VXGILightingPass.SetVoxelTextures(m_VoxelizationPass.GetVoxelRadianceTexture(), m_VoxelMipmapPass.GetMipmapTextures());
             m_VXGILightingPass.SetVoxelParams(m_VoxelizationPass.GetWorldToVoxelMatrix(), voxelBound, voxelResolution);
+            m_VXGILightingPass.SetIntensity(indirectDiffuseIntensity, indirectSpecularIntensity, coneTraceSteps, coneAperture);
 
             renderer.EnqueuePass(m_VoxelizationPass);
             renderer.EnqueuePass(m_VoxelMipmapPass);
@@ -82,6 +87,16 @@ namespace NewVision.VXGI
             private RenderTexture m_VoxelRadiance3D;
 
             public void SetCamera(Camera cam) => m_Camera = cam;
+            public void SetParams(float bound, int resolution, bool followCamera)
+            {
+                m_Bound = bound;
+                m_FollowCamera = followCamera;
+                if (m_Resolution != resolution)
+                {
+                    m_Resolution = resolution;
+                    ReleaseResources();
+                }
+            }
             public RenderTexture GetVoxelRadianceTexture() => m_VoxelRadiance3D;
             public Matrix4x4 GetWorldToVoxelMatrix() => m_WorldToVoxel;
             private ShaderTagId m_ShaderTagId = new ShaderTagId("Voxelization");
@@ -98,12 +113,20 @@ namespace NewVision.VXGI
                 if (shader != null) m_VoxelMat = CoreUtils.CreateEngineMaterial(shader);
             }
 
+            private void ReleaseResources()
+            {
+                if (m_VoxelRadiance3D != null)
+                {
+                    m_VoxelRadiance3D.Release();
+                    m_VoxelRadiance3D = null;
+                }
+            }
+
             public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
             {
-                // 初始化 3D 体素纹理
                 if (m_VoxelRadiance3D == null || m_VoxelRadiance3D.width != m_Resolution)
                 {
-                    if (m_VoxelRadiance3D != null) m_VoxelRadiance3D.Release();
+                    ReleaseResources();
                     var desc = new RenderTextureDescriptor(m_Resolution, m_Resolution, RenderTextureFormat.ARGBHalf, 0)
                     {
                         dimension = TextureDimension.Tex3D,
@@ -193,27 +216,51 @@ namespace NewVision.VXGI
                 if (cs != null) m_Kernel = cs.FindKernel("CSMain");
             }
 
+            private void ReleaseMipmapTextures()
+            {
+                if (m_MipmapTexs != null)
+                {
+                    for (int i = 1; i < m_MipmapTexs.Length; i++)
+                    {
+                        if (m_MipmapTexs[i] != null)
+                        {
+                            m_MipmapTexs[i].Release();
+                            m_MipmapTexs[i] = null;
+                        }
+                    }
+                }
+            }
+
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
                 if (m_MipmapCS == null || m_VoxelTex == null) return;
 
                 CommandBuffer cmd = CommandBufferPool.Get("VXGI Mipmap");
 
-                int mipCount = (int)Mathf.Log(m_Resolution, 2);
-                m_MipmapTexs = new RenderTexture[mipCount];
+                int mipCount = (int)Mathf.Log(m_Resolution, 2) + 1;
+                
+                if (m_MipmapTexs == null || m_MipmapTexs.Length != mipCount)
+                {
+                    ReleaseMipmapTextures();
+                    m_MipmapTexs = new RenderTexture[mipCount];
+                }
                 m_MipmapTexs[0] = m_VoxelTex;
 
-                // 设置输入纹理尺寸
                 cmd.SetComputeIntParams(m_MipmapCS, s_InputTextureSize, new int[] { m_Resolution, m_Resolution, m_Resolution });
 
                 for (int i = 1; i < mipCount; i++)
                 {
                     int res = m_Resolution >> i;
-                    var desc = m_VoxelTex.descriptor;
-                    desc.width = desc.height = desc.volumeDepth = res;
-
-                    m_MipmapTexs[i] = new RenderTexture(desc);
-                    m_MipmapTexs[i].Create();
+                    
+                    if (m_MipmapTexs[i] == null || m_MipmapTexs[i].width != res)
+                    {
+                        if (m_MipmapTexs[i] != null) m_MipmapTexs[i].Release();
+                        
+                        var desc = m_VoxelTex.descriptor;
+                        desc.width = desc.height = desc.volumeDepth = res;
+                        m_MipmapTexs[i] = new RenderTexture(desc);
+                        m_MipmapTexs[i].Create();
+                    }
 
                     cmd.SetComputeTextureParam(m_MipmapCS, m_Kernel, s_InputTex, m_MipmapTexs[i - 1]);
                     cmd.SetComputeTextureParam(m_MipmapCS, m_Kernel, s_OutputTex, m_MipmapTexs[i]);
@@ -228,11 +275,7 @@ namespace NewVision.VXGI
 
             public void Dispose()
             {
-                if (m_MipmapTexs != null)
-                {
-                    for (int i = 1; i < m_MipmapTexs.Length; i++)
-                        m_MipmapTexs[i]?.Release();
-                }
+                ReleaseMipmapTextures();
             }
         }
 
@@ -249,8 +292,20 @@ namespace NewVision.VXGI
             private float m_VoxelBound;
             private int m_VoxelResolution;
 
+            private static readonly int s_GBuffer0 = Shader.PropertyToID("_GBuffer0");
+            private static readonly int s_GBuffer1 = Shader.PropertyToID("_GBuffer1");
+            private static readonly int s_GBuffer2 = Shader.PropertyToID("_GBuffer2");
+            private static readonly int s_CameraDepthTexture = Shader.PropertyToID("_CameraDepthTexture");
+
             public void SetVoxelTextures(RenderTexture tex, RenderTexture[] mips) { m_VoxelTex = tex; m_MipmapTexs = mips; }
             public void SetVoxelParams(Matrix4x4 w2v, float bound, int res) { m_WorldToVoxel = w2v; m_VoxelBound = bound; m_VoxelResolution = res; }
+            public void SetIntensity(float diffuse, float specular, int steps, float aperture)
+            {
+                m_DiffuseIntensity = diffuse;
+                m_SpecularIntensity = specular;
+                m_ConeSteps = steps;
+                m_ConeAperture = aperture;
+            }
 
             private static readonly int s_IndirectDiffuseIntensity = Shader.PropertyToID("_IndirectDiffuseIntensity");
             private static readonly int s_IndirectSpecularIntensity = Shader.PropertyToID("_IndirectSpecularIntensity");
@@ -272,31 +327,26 @@ namespace NewVision.VXGI
 
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
-                if (m_LightingMat == null || m_VoxelTex == null) return;
+                if (m_LightingMat == null || m_VoxelTex == null || m_MipmapTexs == null) return;
 
                 CommandBuffer cmd = CommandBufferPool.Get("VXGI Lighting");
                 
-                // 1. 设置 VXGI 参数
-                cmd.SetGlobalFloat(s_IndirectDiffuseIntensity, m_DiffuseIntensity);
-                cmd.SetGlobalFloat(s_IndirectSpecularIntensity, m_SpecularIntensity);
-                cmd.SetGlobalInt(s_ConeTraceSteps, m_ConeSteps);
-                cmd.SetGlobalFloat(s_ConeAperture, m_ConeAperture);
-                cmd.SetGlobalMatrix(s_WorldToVoxel, m_WorldToVoxel);
-                cmd.SetGlobalFloat(s_VoxelBound, m_VoxelBound);
-                cmd.SetGlobalInt(s_VoxelResolution, m_VoxelResolution);
-                cmd.SetGlobalTexture(s_VoxelRadiance, m_VoxelTex);
+                m_LightingMat.SetFloat(s_IndirectDiffuseIntensity, m_DiffuseIntensity);
+                m_LightingMat.SetFloat(s_IndirectSpecularIntensity, m_SpecularIntensity);
+                m_LightingMat.SetInt(s_ConeTraceSteps, m_ConeSteps);
+                m_LightingMat.SetFloat(s_ConeAperture, m_ConeAperture);
+                m_LightingMat.SetMatrix(s_WorldToVoxel, m_WorldToVoxel);
+                m_LightingMat.SetFloat(s_VoxelBound, m_VoxelBound);
+                m_LightingMat.SetInt(s_VoxelResolution, m_VoxelResolution);
+                m_LightingMat.SetTexture(s_VoxelRadiance, m_VoxelTex);
 
-                // 2. 绑定 URP 内置 GBuffer
-                cmd.SetGlobalTexture("_GBuffer0", Shader.PropertyToID("_GBuffer0"));
-                cmd.SetGlobalTexture("_GBuffer1", Shader.PropertyToID("_GBuffer1"));
-                cmd.SetGlobalTexture("_GBuffer2", Shader.PropertyToID("_GBuffer2"));
-                cmd.SetGlobalTexture("_CameraDepthTexture", Shader.PropertyToID("_CameraDepthTexture"));
+                cmd.SetGlobalTexture(s_GBuffer0, s_GBuffer0);
+                cmd.SetGlobalTexture(s_GBuffer1, s_GBuffer1);
+                cmd.SetGlobalTexture(s_GBuffer2, s_GBuffer2);
+                cmd.SetGlobalTexture(s_CameraDepthTexture, s_CameraDepthTexture);
 
-                // 3. 设置渲染目标为相机颜色缓冲
                 var cameraTarget = renderingData.cameraData.renderer.cameraColorTarget;
                 cmd.SetRenderTarget(cameraTarget);
-
-                // 4. 渲染全屏 Quad 计算 VXGI 光照
                 cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, m_LightingMat, 0, 0);
 
                 context.ExecuteCommandBuffer(cmd);
