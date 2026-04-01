@@ -6,6 +6,7 @@ Shader "NewVision/IBL/Composite"
         _IrradianceMap ("Irradiance Map", Cube) = "white" {}
         _PrefilterMap ("Prefilter Map", Cube) = "white" {}
         _BRDFLut ("BRDF Lut", 2D) = "white" {}
+        [Toggle(_USE_CUSTOM_BRDF_LUT)] _UseCustomBRDFLut ("Use Custom BRDF Lut", Float) = 0
     }
     SubShader
     {
@@ -16,9 +17,11 @@ Shader "NewVision/IBL/Composite"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile _ _USE_CUSTOM_BRDF_LUT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/BSDF/BRDF.hlsl"
             #include "brdf.hlsl"
 
             struct appdata
@@ -53,6 +56,10 @@ Shader "NewVision/IBL/Composite"
             SAMPLER(sampler_GBuffer1);
             SAMPLER(sampler_GBuffer2);
 
+            /// <summary>
+            /// 从屏幕空间坐标重建世界坐标
+            /// 通过深度缓冲和逆视图投影矩阵计算
+            /// </summary>
             float4 GetFragmentWorldPos(float2 screenPos)
             {
                 float sceneRawDepth = SampleSceneDepth(screenPos);
@@ -66,6 +73,10 @@ Shader "NewVision/IBL/Composite"
                 return worldPos;
             }
             
+            /// <summary>
+            /// 从GBuffer解包法线
+            /// 支持Oct编码和标准编码两种格式
+            /// </summary>
             float3 UnpackNormalFromGBuffer(float3 packedNormal)
             {
                 #if defined(_GBUFFER_NORMALS_OCT)
@@ -79,10 +90,32 @@ Shader "NewVision/IBL/Composite"
                 #endif
             }
 
+            /// <summary>
+            /// 获取BRDF LUT采样结果
+            /// 如果启用自定义BRDF Lut则采样自定义纹理，否则使用URP内置的BRDF Lut
+            /// </summary>
+            float2 SampleBRDFLut(float NdotV, float roughness)
+            {
+                #if defined(_USE_CUSTOM_BRDF_LUT)
+                    return tex2D(_BRDFLut, float2(NdotV, roughness)).rg;
+                #else
+                    #if defined(UNITY_VERSION_2022_1_OR_NEWER)
+                        return GetPreIntegratedBRDF(NdotV, roughness);
+                    #else
+                        return tex2D(_BRDFLut, float2(NdotV, roughness)).rg;
+                    #endif
+                #endif
+            }
+
+            /// <summary>
+            /// 片段着色器 - 执行IBL计算
+            /// 实现基于PBR的图像光照，包括漫反射和镜面反射间接光照
+            /// </summary>
             float4 frag (v2f i) : SV_Target
             {
                 float4 color = tex2D(_MainTex, i.uv);
 
+                // ===== 第一步：从GBuffer获取几何和材质信息 =====
                 float4 worldPos = GetFragmentWorldPos(i.uv);
                 float3 albedo = SAMPLE_TEXTURE2D_X(_GBuffer0, sampler_GBuffer0, i.uv).xyz;
                 float3 packedNormal = SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, i.uv).xyz;
@@ -92,33 +125,40 @@ Shader "NewVision/IBL/Composite"
                 float smoothness = metallicSmoothnessAO.a;
                 float roughness = 1.0 - smoothness;
 
-                // view direction
+                // ===== 第二步：计算视线方向和反射方向 =====
                 float3 viewDir = normalize(_WorldSpaceCameraPos - worldPos.xyz);
                 float3 reflectDir = reflect(-viewDir, normal);
 
-                // calculate F0
+                // ===== 第三步：计算菲涅尔基础反射率F0 =====
+                // 非金属使用0.04作为基础值，金属使用albedo作为F0
                 float3 F0 = float3(0.04, 0.04, 0.04);
                 F0 = lerp(F0, albedo, metallic);
 
-                // indirect lighting (IBL)
+                // ===== 第四步：计算菲涅尔项（考虑粗糙度） =====
                 float3 F = fresnelSchlickRoughness(max(dot(normal, viewDir), 0.0), F0, roughness);
 
-                // diffuse component
+                // ===== 第五步：计算漫反射系数 =====
+                // kS为镜面反射比例，kD为漫反射比例
+                // 金属不产生漫反射
                 float3 kS = F;
                 float3 kD = 1.0 - kS;
                 kD *= 1.0 - metallic;
 
-                // irradiance
+                // ===== 第六步：计算漫反射IBL =====
+                // 从IrradianceMap采样获得环境漫反射光照
                 float3 irradiance = texCUBE(_IrradianceMap, normal).rgb;
                 float3 diffuse = irradiance * albedo;
 
-                // specular component
+                // ===== 第七步：计算镜面反射IBL =====
+                // 使用粗糙度作为LOD级别采样PrefilterMap
+                // 从BRDF LUT获取缩放和偏移值（使用URP内置或自定义）
                 const float MAX_REFLECTION_LOD = 4.0;
                 float3 prefilteredColor = texCUBElod(_PrefilterMap, float4(reflectDir, roughness * MAX_REFLECTION_LOD)).rgb;
-                float2 brdf = tex2D(_BRDFLut, float2(max(dot(normal, viewDir), 0.0), roughness)).rg;
+                float NdotV = max(dot(normal, viewDir), 0.0);
+                float2 brdf = SampleBRDFLut(NdotV, roughness);
                 float3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-                // final IBL contribution
+                // ===== 第八步：合并IBL贡献 =====
                 float3 ibl = (kD * diffuse + specular);
 
                 color.rgb += ibl;

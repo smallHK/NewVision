@@ -7,9 +7,13 @@
 // Matrix variables are defined in URP Core.hlsl
 
 
-float4x4 _InverseProjectionMatrix;
-float4x4 _InverseViewMatrix;
+//float4x4 _InverseProjectionMatrix;
+//float4x4 _InverseViewMatrix;
 
+float4x4 _MyInverseProjectionMatrix;
+float4x4 _MyProjectionMatrix;
+float4x4 _MyInverseViewMatrix;
+float4x4 _MyViewMatrix;
 
 int _Frame;
 int _DitherMode;
@@ -36,9 +40,12 @@ inline float ScreenEdgeMask(float2 clipPos) {
 float3 getWorldPosition(float rawDepth, float2 uv) {
     float4 clipSpace = float4(uv * 2 - 1, rawDepth, 1);
     clipSpace.y *= -1;
-    float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace);
+    //float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace);
+    float4 viewSpacePosition = mul(_MyInverseProjectionMatrix, clipSpace);
+
     viewSpacePosition /= viewSpacePosition.w;
-    float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition);
+    //float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition);
+    float4 worldSpacePosition = mul(_MyInverseViewMatrix, viewSpacePosition);
     return worldSpacePosition.xyz;
 }
 #endif
@@ -106,9 +113,9 @@ inline bool floatEqApprox(float a, float b) {
     return abs(a - b) < eps;
 }
 
-// Linear eye depth conversion
-inline float LinearEyeDepth(float depth) {
-    float z = depth * 2.0 - 1.0;
-    return (2.0 * _ProjectionParams.y) / (_ProjectionParams.z + _ProjectionParams.y - z * (_ProjectionParams.z - _ProjectionParams.y));
-}
+//// Linear eye depth conversion
+//inline float LinearEyeDepth(float depth) {
+//    float z = depth * 2.0 - 1.0;
+//    return (2.0 * _ProjectionParams.y) / (_ProjectionParams.z + _ProjectionParams.y - z * (_ProjectionParams.z - _ProjectionParams.y));
+//}
 #endif //MYSSR_COMMON_INCLUDED

@@ -80,7 +80,6 @@ Shader "Hidden/SSR_Shader"
             // 片段着色器：执行线性光线追踪
             half3 frag(v2f i) : SV_Target
             {
-                //return half3(0, 0, 0);
                 // 1. 获取深度和材质信息
                 float rawDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, i.uv).r;
                 
@@ -96,27 +95,23 @@ Shader "Hidden/SSR_Shader"
                 float3 normal = UnpackNormal(gbuff.xyz); // 解码法线
 
                 // 2. 坐标转换：从屏幕空间到世界空间
-                float4 clipSpace = float4(i.uv * 2 - 1, rawDepth, 1); // 屏幕空间坐标（-1到1）
-                  
-
-                 
-                //return (half3)clipSpace.rgb;
-
-                float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace); // 裁剪空间到视图空间
+                float4 clipSpace = float4(i.uv * 2 - 1, rawDepth, 1); // 屏幕空间坐标（-1到1）                 
+              
+                //float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace); // 裁剪空间到视图空间
+                //float4 viewSpacePosition = mul(UNITY_MATRIX_I_P, clipSpace); // 裁剪空间到视图空间
+                float4 viewSpacePosition = mul(_MyInverseProjectionMatrix, clipSpace); // 裁剪空间到视图空间
                 viewSpacePosition /= viewSpacePosition.w; // 透视除法
-                
-                float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition); // 视图空间到世界空间
-                //float3 viewDir = normalize(float3(worldSpacePosition.xyz) - _WorldSpaceCameraPos); // 视图方向（点到相机）
+
+                //float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition); // 视图空间到世界空间
+                //float4 worldSpacePosition = mul(UNITY_MATRIX_I_V, viewSpacePosition); // 视图空间到世界空间
+                float4 worldSpacePosition = mul(_MyInverseViewMatrix, viewSpacePosition); // 视图空间到世界空间
                 float3 viewDir = normalize(float3(worldSpacePosition.xyz - _WorldSpaceCameraPos));             
-                float3 reflectionRay = reflect(-viewDir, normal); // 计算反射光线方向
+                float3 reflectionRay = reflect(viewDir, normal); // 计算反射光线方向
 
                 // 3. 转换反射光线到视图空间
                 //float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0)); // 世界空间到视图空间
-                float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0)).xyz;
-                
-                reflectionRay_v.z *= -1; // 翻转Z轴
-                viewSpacePosition.z *= -1; // 翻转Z轴（正值表示距离）
-
+                 float3 reflectionRay_v = mul(_MyViewMatrix, float4(reflectionRay, 0)); // 世界空间到视图空间
+              
                 // 4. 计算光线追踪参数
                 float viewReflectDot = saturate(dot(viewDir, reflectionRay));
                 float cameraViewReflectDot = saturate(dot(_WorldSpaceViewDir, reflectionRay));
@@ -135,66 +130,97 @@ Shader "Hidden/SSR_Shader"
 
                 // 7. 检查是否需要光线追踪（只有光滑度足够高才进行）
                 bool doRayMarch = smoothness > minSmoothness;
-
+                                
                 // 8. 计算最大光线长度
                 float maxRayLength = numSteps * stride;
-                float maxDist = lerp(min(viewSpacePosition.z, maxRayLength), maxRayLength, cameraViewReflectDot);
+                float maxDist = lerp(min(viewSpacePosition.z * -1, maxRayLength), maxRayLength, cameraViewReflectDot);
                 float numSteps_f = maxDist / stride;
                 numSteps = max(numSteps_f, 0);
 
+                //return half3(maxDist, stride, numSteps);
                 // 9. 执行光线追踪
                 if (doRayMarch) {
                     float3 ray = reflectionRay_v * stride; // 光线方向和步长
                     float depthDelta = 0;
-                    
+
+
                     // 9.1 线性光线步进
-                    //[unroll(64)] 
                     [loop]
                     for (int step = 0; step < numSteps; step++)
                     {
+                        //float4 uv = mul(_MyProjectionMatrix, float4(currentPosition.x, currentPosition.y, currentPosition.z, 1));
+                        //return half3(uv.xy/ uv.w, uv.w);
+
                         currentPosition += ray; // 沿着反射光线移动
 
+
+                        //return half3(reflectionRay_v.rgb);
+
                         // 9.2 将当前位置转换为屏幕空间坐标
-                        //float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
-                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y, currentPosition.z * -1, 1));
-                        
+                        //float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y, currentPosition.z, 1));
+                        float4 uv = mul(_MyProjectionMatrix, float4(currentPosition.x, currentPosition.y, currentPosition.z, 1));
+
+                    
                         uv /= uv.w; // 透视除法
                         uv.x *= 0.5f;
                         uv.y *= 0.5f;
                         uv.x += 0.5f;
                         uv.y += 0.5f;
                         
+                       
+
+
                         // 9.3 检查是否超出屏幕边界
                         if (uv.x >= 1 || uv.x < 0 || uv.y >= 1 || uv.y < 0) {
+                            //return half3(1, 1, 1);
                             break;
                         }
                         
+
                         // 9.4 采样深度纹理
                         float sampledDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uv.xy).r;
-                        
+
+                       //return half3(step, numSteps, thickness);
+
                         // 9.5 比较当前位置深度与采样深度
                         if (abs(rawDepth - sampledDepth) > 0 && sampledDepth != 0) {
-                            depthDelta = currentPosition.z - LinearEyeDepth(sampledDepth);
-                            //depthDelta = currentPosition.z - LinearEyeDepth(sampledDepth, _ZBufferParams); // ✅
+                            
+                            float samEyeDepth = LinearEyeDepth(sampledDepth, _ZBufferParams);
+                            //depthDelta = currentPosition.z - LinearEyeDepth(sampledDepth, _ZBufferParams);
+                            depthDelta = currentPosition.z * (-1) - samEyeDepth;
+
+
+                            //if( depthDelta > 0)
+                            //{
+                            //    return half3(1, 1, 1);
+                            //}
+                            //return half3(currentPosition.z, samEyeDepth, step);  
 
                             // 9.6 检查是否命中物体
                             if (depthDelta > 0 && depthDelta < stride * 2) {
+                                
                                 currentScreenSpacePosition = uv.xy; // 记录命中位置
                                 hit = 1; // 标记命中
                                 break;
                             }
                         }
+
+                        //return half3(rawDepth, sampledDepth, step);
                     }
 
                     // 9.7 检查深度差是否在合理范围内
                     if (depthDelta > thickness) {
                         hit = 0;
                     }
-                    
+                          
+          
                     // 9.8 二分法精确查找命中点
                     #define binaryStepCount 16
                     int binarySearchSteps = binaryStepCount * hit;
+                //return half3(hit, 0, 0);
+
                     [loop]
+                    //for (int j = 0; j < binarySearchSteps; j++)
                     for (int j = 0; j < binaryStepCount; j++)
                     {
                         ray *= .5f; // 步长减半
@@ -210,7 +236,8 @@ Shader "Hidden/SSR_Shader"
 
                         // 9.9 重新计算屏幕空间坐标
                         //float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
-                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y, currentPosition.z * -1, 1));
+                        //float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y, currentPosition.z * -1, 1));
+                        float4 uv = mul(_MyProjectionMatrix, float4(currentPosition.x, currentPosition.y, currentPosition.z, 1));
 
                         uv /= uv.w;
                         maskOut = ScreenEdgeMask(uv); // 计算边缘遮罩
@@ -220,16 +247,18 @@ Shader "Hidden/SSR_Shader"
                         uv.y += 0.5f;
                         currentScreenSpacePosition = uv;
 
+                        //return half3(uv.xy, maskOut);
+
                         // 9.10 重新采样深度并计算深度差
                         float sd = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uv.xy).r;
-                        depthDelta = currentPosition.z - LinearEyeDepth(sd);
+                        depthDelta = currentPosition.z * -1 - LinearEyeDepth(sd, _ZBufferParams);
                         float minv = 1 / max((oneMinusViewReflectDot * float(j)), 0.001);
                         if (abs(depthDelta) > minv) {
                             hit = 0; // 深度差过大，认为未命中
                             break;
                         }
                     }
-
+                    //return half3(hit, 0,  0);
                     // 9.11 检查是否命中物体背面
                     float3 currentNormal = UnpackNormal(SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, currentScreenSpacePosition).xyz);
                     float backFaceDot = dot(currentNormal, reflectionRay);
@@ -237,6 +266,8 @@ Shader "Hidden/SSR_Shader"
                         hit = 0; // 命中背面，认为未命中
                     }
                 }
+
+                //return half3(hit, 0, 0);
 
                 // 10. 计算光线追踪进度
                 float3 deltaDir = viewSpacePosition.xyz - currentPosition;
@@ -416,228 +447,228 @@ Shader "Hidden/SSR_Shader"
             ENDHLSL
         }
 
-        // 2 - HiZ SSR Pass：使用深度金字塔加速的光线追踪
-        Pass
-        {
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma enable_d3d11_debug_symbols
-            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+        //// 2 - HiZ SSR Pass：使用深度金字塔加速的光线追踪
+        //Pass
+        //{
+        //    HLSLPROGRAM
+        //    #pragma vertex vert
+        //    #pragma fragment frag
+        //    #pragma enable_d3d11_debug_symbols
+        //    #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
             
-            // HiZ参数定义
-            #define HIZ_START_LEVEL 0     // 起始金字塔层级
-            #define HIZ_MAX_LEVEL 10      // 最大金字塔层级
-            #define HIZ_STOP_LEVEL 0       // 停止金字塔层级
+        //    // HiZ参数定义
+        //    #define HIZ_START_LEVEL 0     // 起始金字塔层级
+        //    #define HIZ_MAX_LEVEL 10      // 最大金字塔层级
+        //    #define HIZ_STOP_LEVEL 0       // 停止金字塔层级
 
-            // 包含必要的HLSL库
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "NormalSample.hlsl"
-            #include "Common.hlsl"
+        //    // 包含必要的HLSL库
+        //    #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+        //    #include "NormalSample.hlsl"
+        //    #include "Common.hlsl"
 
-            // 顶点输入结构体
-            struct appdata
-            {
-                float4 vertex : POSITION; // 顶点位置
-                float2 uv : TEXCOORD0;    // 纹理坐标
-            };
+        //    // 顶点输入结构体
+        //    struct appdata
+        //    {
+        //        float4 vertex : POSITION; // 顶点位置
+        //        float2 uv : TEXCOORD0;    // 纹理坐标
+        //    };
 
-            // 顶点输出结构体
-            struct v2f
-            {
-                float2 uv : TEXCOORD0;    // 纹理坐标
-                float4 vertex : SV_POSITION; // 裁剪空间位置
-            };
+        //    // 顶点输出结构体
+        //    struct v2f
+        //    {
+        //        float2 uv : TEXCOORD0;    // 纹理坐标
+        //        float4 vertex : SV_POSITION; // 裁剪空间位置
+        //    };
 
-            // 顶点着色器：简单的全屏四边形变换
-            v2f vert(appdata v)
-            {
-                v2f o;
-                o.vertex = TransformObjectToHClip(v.vertex); // 物体空间到裁剪空间的变换
-                o.uv = v.uv; // 传递纹理坐标
-                return o;
-            }
+        //    // 顶点着色器：简单的全屏四边形变换
+        //    v2f vert(appdata v)
+        //    {
+        //        v2f o;
+        //        o.vertex = TransformObjectToHClip(v.vertex); // 物体空间到裁剪空间的变换
+        //        o.uv = v.uv; // 传递纹理坐标
+        //        return o;
+        //    }
 
-            // 声明纹理和采样器
-            TEXTURE2D_X(_GBuffer2);            // GBuffer2，存储法线和光滑度
-            TEXTURE2D_X(_MainTex);             // 主屏幕纹理
-            TEXTURE2D_X(_CameraDepthTexture);   // 相机深度纹理
+        //    // 声明纹理和采样器
+        //    TEXTURE2D_X(_GBuffer2);            // GBuffer2，存储法线和光滑度
+        //    TEXTURE2D_X(_MainTex);             // 主屏幕纹理
+        //    TEXTURE2D_X(_CameraDepthTexture);   // 相机深度纹理
 
-            // 全局变量
-            float3 _WorldSpaceViewDir; // 世界空间相机方向
-            float _RenderScale;        // 渲染缩放
-            float numSteps;            // 最大光线追踪步数
-            float minSmoothness;       // 光滑度阈值
-            int iteration;             // 迭代次数
-            int reflectSky;            // 是否反射天空
-            float2 crossEpsilon;       // 交叉epsilon值
-            float stride;              // 光线步进步长
+        //    // 全局变量
+        //    float3 _WorldSpaceViewDir; // 世界空间相机方向
+        //    float _RenderScale;        // 渲染缩放
+        //    float numSteps;            // 最大光线追踪步数
+        //    float minSmoothness;       // 光滑度阈值
+        //    int iteration;             // 迭代次数
+        //    int reflectSky;            // 是否反射天空
+        //    float2 crossEpsilon;       // 交叉epsilon值
+        //    float stride;              // 光线步进步长
 
-            // 采样器状态
-            SamplerState sampler_GBuffer2;
-            SamplerState sampler_MainTex;
-            SamplerState sampler_CameraDepthTexture;
+        //    // 采样器状态
+        //    SamplerState sampler_GBuffer2;
+        //    SamplerState sampler_MainTex;
+        //    SamplerState sampler_CameraDepthTexture;
 
-            // 片段着色器：执行HiZ光线追踪
-            float4 frag(v2f i) : SV_Target
-            {
-                // 1. 获取深度和材质信息
-                float rawDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, i.uv).r;
+        //    // 片段着色器：执行HiZ光线追踪
+        //    float4 frag(v2f i) : SV_Target
+        //    {
+        //        // 1. 获取深度和材质信息
+        //        float rawDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, i.uv).r;
                 
-                // 背景区域（天空盒）直接返回黑色，不进行反射
-                if (rawDepth == 0) {
-                    return float4(0, 0, 0, 1);
-                }
+        //        // 背景区域（天空盒）直接返回黑色，不进行反射
+        //        if (rawDepth == 0) {
+        //            return float4(0, 0, 0, 1);
+        //        }
                 
-                float4 gbuff = SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, i.uv);
-                float smoothness = gbuff.w; // 从GBuffer2获取光滑度
-                float stepS = smoothstep(minSmoothness, 1, smoothness); // 计算光滑度因子
-                float3 normal = UnpackNormal(gbuff.xyz); // 解码法线
+        //        float4 gbuff = SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, i.uv);
+        //        float smoothness = gbuff.w; // 从GBuffer2获取光滑度
+        //        float stepS = smoothstep(minSmoothness, 1, smoothness); // 计算光滑度因子
+        //        float3 normal = UnpackNormal(gbuff.xyz); // 解码法线
 
-                // 2. 坐标转换：从屏幕空间到世界空间
-                float4 clipSpace = float4(i.uv * 2 - 1, rawDepth, 1); // 屏幕空间坐标（-1到1）
-                float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace); // 裁剪空间到视图空间
-                viewSpacePosition /= viewSpacePosition.w; // 透视除法
-                viewSpacePosition.y *= -1; // 翻转Y轴（关键！）
-                float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition); // 视图空间到世界空间
-                float3 viewDir = normalize(float3(worldSpacePosition.xyz) - _WorldSpaceCameraPos); // 视图方向（点到相机）
-                float3 reflectionRay = reflect(viewDir, normal); // 计算反射光线方向
+        //        // 2. 坐标转换：从屏幕空间到世界空间
+        //        float4 clipSpace = float4(i.uv * 2 - 1, rawDepth, 1); // 屏幕空间坐标（-1到1）
+        //        float4 viewSpacePosition = mul(_InverseProjectionMatrix, clipSpace); // 裁剪空间到视图空间
+        //        viewSpacePosition /= viewSpacePosition.w; // 透视除法
+        //        viewSpacePosition.y *= -1; // 翻转Y轴（关键！）
+        //        float4 worldSpacePosition = mul(_InverseViewMatrix, viewSpacePosition); // 视图空间到世界空间
+        //        float3 viewDir = normalize(float3(worldSpacePosition.xyz) - _WorldSpaceCameraPos); // 视图方向（点到相机）
+        //        float3 reflectionRay = reflect(viewDir, normal); // 计算反射光线方向
 
-                // 3. 转换反射光线到视图空间
-                float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0)); // 世界空间到视图空间
-                reflectionRay_v.z *= -1; // 翻转Z轴
-                viewSpacePosition.z *= -1; // 翻转Z轴（正值表示距离）
+        //        // 3. 转换反射光线到视图空间
+        //        float3 reflectionRay_v = mul(GetWorldToViewMatrix(), float4(reflectionRay, 0)); // 世界空间到视图空间
+        //        reflectionRay_v.z *= -1; // 翻转Z轴
+        //        viewSpacePosition.z *= -1; // 翻转Z轴（正值表示距离）
 
-                // 4. 计算光线追踪参数
-                float viewReflectDot = saturate(dot(viewDir, reflectionRay));
-                float cameraViewReflectDot = saturate(dot(_WorldSpaceViewDir, reflectionRay));
+        //        // 4. 计算光线追踪参数
+        //        float viewReflectDot = saturate(dot(viewDir, reflectionRay));
+        //        float cameraViewReflectDot = saturate(dot(_WorldSpaceViewDir, reflectionRay));
 
-                // 5. 根据视角调整步长和厚度
-                float thickness = stride * 2;
-                float oneMinusViewReflectDot = sqrt(1 - viewReflectDot);
-                stride /= oneMinusViewReflectDot; // 视角越陡，步长越小
-                thickness /= oneMinusViewReflectDot;
+        //        // 5. 根据视角调整步长和厚度
+        //        float thickness = stride * 2;
+        //        float oneMinusViewReflectDot = sqrt(1 - viewReflectDot);
+        //        stride /= oneMinusViewReflectDot; // 视角越陡，步长越小
+        //        thickness /= oneMinusViewReflectDot;
 
-                // 6. 初始化光线追踪变量
-                int hit = 0; // 是否命中
-                float maskOut = 1; // 边缘遮罩
-                float3 currentPosition = viewSpacePosition.xyz; // 当前光线位置
-                float2 currentScreenSpacePosition = i.uv; // 当前屏幕空间位置
+        //        // 6. 初始化光线追踪变量
+        //        int hit = 0; // 是否命中
+        //        float maskOut = 1; // 边缘遮罩
+        //        float3 currentPosition = viewSpacePosition.xyz; // 当前光线位置
+        //        float2 currentScreenSpacePosition = i.uv; // 当前屏幕空间位置
 
-                // 7. 检查是否需要光线追踪（只有光滑度足够高才进行）
-                bool doRayMarch = smoothness > minSmoothness;
+        //        // 7. 检查是否需要光线追踪（只有光滑度足够高才进行）
+        //        bool doRayMarch = smoothness > minSmoothness;
 
-                // 8. 计算最大光线长度
-                float maxRayLength = numSteps * stride;
-                float maxDist = lerp(min(viewSpacePosition.z, maxRayLength), maxRayLength, cameraViewReflectDot);
+        //        // 8. 计算最大光线长度
+        //        float maxRayLength = numSteps * stride;
+        //        float maxDist = lerp(min(viewSpacePosition.z, maxRayLength), maxRayLength, cameraViewReflectDot);
 
-                // 9. 执行HiZ光线追踪
-                if (doRayMarch) {
-                    float3 ray = reflectionRay_v * stride; // 光线方向和步长
-                    float depthDelta = 0;
+        //        // 9. 执行HiZ光线追踪
+        //        if (doRayMarch) {
+        //            float3 ray = reflectionRay_v * stride; // 光线方向和步长
+        //            float depthDelta = 0;
 
-                    // 9.1 多分辨率层级光线追踪
-                    [unroll(10)] for (int level = HIZ_START_LEVEL; level < HIZ_MAX_LEVEL; level++) {
-                        float stepSize = 1.0f / pow(2, level); // 层级越大，步长越大
+        //            // 9.1 多分辨率层级光线追踪
+        //            [unroll(10)] for (int level = HIZ_START_LEVEL; level < HIZ_MAX_LEVEL; level++) {
+        //                float stepSize = 1.0f / pow(2, level); // 层级越大，步长越大
                         
-                        // 9.2 在当前层级执行光线步进
-                        [unroll(64)] for (int step = 0; step < numSteps; step++) {
-                            currentPosition += ray * stepSize; // 沿着反射光线移动
+        //                // 9.2 在当前层级执行光线步进
+        //                [unroll(64)] for (int step = 0; step < numSteps; step++) {
+        //                    currentPosition += ray * stepSize; // 沿着反射光线移动
                             
-                            // 9.3 将当前位置转换为屏幕空间坐标
-                            float4 uvProj = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
-                            uvProj /= uvProj.w; // 透视除法
-                            uvProj.x *= 0.5f;
-                            uvProj.y *= 0.5f;
-                            uvProj.x += 0.5f;
-                            uvProj.y += 0.5f;
+        //                    // 9.3 将当前位置转换为屏幕空间坐标
+        //                    float4 uvProj = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+        //                    uvProj /= uvProj.w; // 透视除法
+        //                    uvProj.x *= 0.5f;
+        //                    uvProj.y *= 0.5f;
+        //                    uvProj.x += 0.5f;
+        //                    uvProj.y += 0.5f;
                             
-                            // 9.4 检查是否超出屏幕边界
-                            if (uvProj.x >= 1 || uvProj.x < 0 || uvProj.y >= 1 || uvProj.y < 0) {
-                                break;
-                            }
+        //                    // 9.4 检查是否超出屏幕边界
+        //                    if (uvProj.x >= 1 || uvProj.x < 0 || uvProj.y >= 1 || uvProj.y < 0) {
+        //                        break;
+        //                    }
                             
-                            // 9.5 采样深度纹理
-                            float sampledDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uvProj.xy).r;
+        //                    // 9.5 采样深度纹理
+        //                    float sampledDepth = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uvProj.xy).r;
                             
-                            // 9.6 比较当前位置深度与采样深度
-                            if (abs(rawDepth - sampledDepth) > 0 && sampledDepth != 0) {
-                                float linearDepth = LinearEyeDepth(sampledDepth); // 转换为线性深度
-                                depthDelta = currentPosition.z - linearDepth; // 计算深度差
+        //                    // 9.6 比较当前位置深度与采样深度
+        //                    if (abs(rawDepth - sampledDepth) > 0 && sampledDepth != 0) {
+        //                        float linearDepth = LinearEyeDepth(sampledDepth); // 转换为线性深度
+        //                        depthDelta = currentPosition.z - linearDepth; // 计算深度差
                                 
-                                // 9.7 检查是否命中物体
-                                if (depthDelta > 0 && depthDelta < stride * 2) {
-                                    currentScreenSpacePosition = uvProj.xy; // 记录命中位置
-                                    hit = 1; // 标记命中
-                                    break;
-                                }
-                            }
-                        }
+        //                        // 9.7 检查是否命中物体
+        //                        if (depthDelta > 0 && depthDelta < stride * 2) {
+        //                            currentScreenSpacePosition = uvProj.xy; // 记录命中位置
+        //                            hit = 1; // 标记命中
+        //                            break;
+        //                        }
+        //                    }
+        //                }
                         
-                        // 9.8 如果命中，停止层级遍历
-                        if (hit > 0) break;
-                    }
+        //                // 9.8 如果命中，停止层级遍历
+        //                if (hit > 0) break;
+        //            }
 
-                    // 9.9 检查深度差是否在合理范围内
-                    if (depthDelta > thickness) {
-                        hit = 0;
-                    }
+        //            // 9.9 检查深度差是否在合理范围内
+        //            if (depthDelta > thickness) {
+        //                hit = 0;
+        //            }
 
-                    // 9.10 二分法精确查找命中点
-                    #define binaryStepCount 16
-                    int binarySearchSteps = binaryStepCount * hit;
-                    for (int i = 0; i < binaryStepCount; i++) {
-                        ray *= .5f; // 步长减半
-                        if (depthDelta > 0) {
-                            currentPosition -= ray; // 向相机方向移动
-                        }
-                        else if (depthDelta < 0) {
-                            currentPosition += ray; // 远离相机方向移动
-                        }
-                        else {
-                            break;
-                        }
+        //            // 9.10 二分法精确查找命中点
+        //            #define binaryStepCount 16
+        //            int binarySearchSteps = binaryStepCount * hit;
+        //            for (int i = 0; i < binaryStepCount; i++) {
+        //                ray *= .5f; // 步长减半
+        //                if (depthDelta > 0) {
+        //                    currentPosition -= ray; // 向相机方向移动
+        //                }
+        //                else if (depthDelta < 0) {
+        //                    currentPosition += ray; // 远离相机方向移动
+        //                }
+        //                else {
+        //                    break;
+        //                }
 
-                        // 9.11 重新计算屏幕空间坐标
-                        float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
-                        uv /= uv.w;
-                        maskOut = ScreenEdgeMask(uv); // 计算边缘遮罩
-                        uv.x *= 0.5f;
-                        uv.y *= 0.5f;
-                        uv.x += 0.5f;
-                        uv.y += 0.5f;
-                        currentScreenSpacePosition = uv;
+        //                // 9.11 重新计算屏幕空间坐标
+        //                float4 uv = mul(GetViewToHClipMatrix(), float4(currentPosition.x, currentPosition.y * -1, currentPosition.z * -1, 1));
+        //                uv /= uv.w;
+        //                maskOut = ScreenEdgeMask(uv); // 计算边缘遮罩
+        //                uv.x *= 0.5f;
+        //                uv.y *= 0.5f;
+        //                uv.x += 0.5f;
+        //                uv.y += 0.5f;
+        //                currentScreenSpacePosition = uv;
 
-                        // 9.12 重新采样深度并计算深度差
-                        float sd = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uv.xy).r;
-                        depthDelta = currentPosition.z - LinearEyeDepth(sd);
-                        float minv = 1 / max((oneMinusViewReflectDot * float(i)), 0.001);
-                        if (abs(depthDelta) > minv) {
-                            hit = 0; // 深度差过大，认为未命中
-                            break;
-                        }
-                    }
+        //                // 9.12 重新采样深度并计算深度差
+        //                float sd = SAMPLE_TEXTURE2D_X(_CameraDepthTexture, sampler_CameraDepthTexture, uv.xy).r;
+        //                depthDelta = currentPosition.z - LinearEyeDepth(sd);
+        //                float minv = 1 / max((oneMinusViewReflectDot * float(i)), 0.001);
+        //                if (abs(depthDelta) > minv) {
+        //                    hit = 0; // 深度差过大，认为未命中
+        //                    break;
+        //                }
+        //            }
 
-                    // 9.13 检查是否命中物体背面
-                    float3 currentNormal = UnpackNormal(SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, currentScreenSpacePosition).xyz);
-                    float backFaceDot = dot(currentNormal, reflectionRay);
-                    if (backFaceDot > 0) {
-                        hit = 0; // 命中背面，认为未命中
-                    }
-                }
+        //            // 9.13 检查是否命中物体背面
+        //            float3 currentNormal = UnpackNormal(SAMPLE_TEXTURE2D_X(_GBuffer2, sampler_GBuffer2, currentScreenSpacePosition).xyz);
+        //            float backFaceDot = dot(currentNormal, reflectionRay);
+        //            if (backFaceDot > 0) {
+        //                hit = 0; // 命中背面，认为未命中
+        //            }
+        //        }
 
-                // 10. 计算光线追踪进度
-                float3 deltaDir = viewSpacePosition.xyz - currentPosition;
-                float progress = dot(deltaDir, deltaDir) / (maxDist * maxDist);
-                progress = smoothstep(0, .5, 1 - progress); // 平滑处理
+        //        // 10. 计算光线追踪进度
+        //        float3 deltaDir = viewSpacePosition.xyz - currentPosition;
+        //        float progress = dot(deltaDir, deltaDir) / (maxDist * maxDist);
+        //        progress = smoothstep(0, .5, 1 - progress); // 平滑处理
 
-                // 11. 应用遮罩
-                maskOut *= hit;
+        //        // 11. 应用遮罩
+        //        maskOut *= hit;
                 
-                // 12. 返回反射信息：屏幕空间坐标和反射强度
-                return float4(currentScreenSpacePosition, maskOut * progress, 1.0);
-            }
-            ENDHLSL
-        }
+        //        // 12. 返回反射信息：屏幕空间坐标和反射强度
+        //        return float4(currentScreenSpacePosition, maskOut * progress, 1.0);
+        //    }
+        //    ENDHLSL
+        //}
     }
 }

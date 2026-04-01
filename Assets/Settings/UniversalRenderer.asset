@@ -1,5 +1,19 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-7532637730261823843
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5e223055580620f4f87b487615e7a10f, type: 3}
+  m_Name: IBLComposite
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  compositeMaterial: {fileID: 0}
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -18,7 +32,8 @@ MonoBehaviour:
   - {fileID: 9131499273799005415}
   - {fileID: 745020870173784929}
   - {fileID: 4131354880173646981}
-  m_RendererFeatureMap: e7f48671359ab97e61fbf5bc88d8560a85a4d3e95f855539
+  - {fileID: -7532637730261823843}
+  m_RendererFeatureMap: e7f48671359ab97e61fbf5bc88d8560a85a4d3e95f8555399d0e0adae4b17697
   m_UseNativeRenderPass: 0
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
@@ -85,7 +100,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 062f0e897603dc14fbc49108e8a2af87, type: 3}
   m_Name: MySSR
   m_EditorClassIdentifier: 
-  m_Active: 1
+  m_Active: 0
   Settings:
     SSR_Instance: {fileID: 0}
     SSRShader: {fileID: 4800000, guid: af4adaeabf454bc4285f7ea501b9b0de, type: 3}

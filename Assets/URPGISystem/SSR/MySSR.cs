@@ -133,10 +133,10 @@ namespace NewVision.SSR
 #else
             Settings.SSR_Instance.SetFloat("_RenderScale", renderingData.cameraData.renderScale);
 #endif
-            Settings.SSR_Instance.SetMatrix("_InverseProjectionMatrix", projectionMatrix.inverse);
-            Settings.SSR_Instance.SetMatrix("_ProjectionMatrix", projectionMatrix);
-            Settings.SSR_Instance.SetMatrix("_InverseViewMatrix", viewMatrix.inverse);
-            Settings.SSR_Instance.SetMatrix("_ViewMatrix", viewMatrix);
+            Settings.SSR_Instance.SetMatrix("_MyInverseProjectionMatrix", projectionMatrix.inverse);
+            Settings.SSR_Instance.SetMatrix("_MyProjectionMatrix", projectionMatrix);
+            Settings.SSR_Instance.SetMatrix("_MyInverseViewMatrix", viewMatrix.inverse);
+            Settings.SSR_Instance.SetMatrix("_MyViewMatrix", viewMatrix);
         }
 
         public override void Create()
