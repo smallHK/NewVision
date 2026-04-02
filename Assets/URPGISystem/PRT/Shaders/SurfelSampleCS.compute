@@ -2,6 +2,7 @@
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+// Surfel结构体定义
 struct Surfel
 {
     float3 position;
@@ -10,6 +11,7 @@ struct Surfel
     float skyMask;
 };
 
+// 输入/输出缓冲区
 RWStructuredBuffer<Surfel> _surfels;
 TextureCube _worldPosCubemap;
 TextureCube _normalCubemap;
@@ -18,18 +20,25 @@ SamplerState sampler_point_clamp;
 float _randSeed;
 float4 _probePos;
 
+// 步骤1: 伪随机数生成
 float rand(float2 uv)
 {
     return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
 }
 
+// 步骤2: 均匀球面采样
+// 使用两个均匀随机数生成球面上的均匀分布方向
 float3 UniformSphereSample(float u, float v)
 {
     const float C_PI = 3.14159265359f;
+    // 步骤2.1: 计算方位角（0到2π）
     float phi = degrees(2.0 * C_PI * u);
+    // 步骤2.2: 计算极角的余弦（-1到1）
     float cosine_theta = 1.0 - 2.0 * v;
+    // 步骤2.3: 计算极角的正弦
     float sine_theta = sqrt(1.0 - cosine_theta * cosine_theta);
     
+    // 步骤2.4: 转换为笛卡尔坐标
     float x = sine_theta * cos(phi);
     float y = sine_theta * sin(phi);
     float z = cosine_theta;
@@ -37,29 +46,35 @@ float3 UniformSphereSample(float u, float v)
     return float3(x, y, z);
 }
 
+// 步骤3: 主计算着色器 - Surfel采样
 [numthreads(32,16,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
+    // 步骤3.1: 计算归一化的线程坐标
     float2 xy = float2(id.x, id.y) / float2(32, 16);
     xy += float2(1, 1) * _randSeed;
 
+    // 步骤3.2: 生成随机数
     float u = rand(xy * 1.0);
     float v = rand(xy * 2.0);
+    // 步骤3.3: 生成均匀球面采样方向
     float3 dir = UniformSphereSample(u, v);
 
     Surfel result;
 
-    // opaque geometry
+    // 步骤3.4: 从Cubemap采样不透明几何体信息
     result.position = _worldPosCubemap.SampleLevel(sampler_point_clamp, dir, 0).rgb;
     result.albedo = _albedoCubemap.SampleLevel(sampler_point_clamp, dir, 0).rgb;
 
+    // 步骤3.5: 采样法线和天空遮罩
     float4 normal_and_mask = _normalCubemap.SampleLevel(sampler_point_clamp, dir, 0);
     result.normal = normal_and_mask.xyz;
     result.skyMask = saturate(1.0 - normal_and_mask.w);
 
-    // sample sky
+    // 步骤3.6: 对于天空采样，设置远距离位置
     result.position += (_probePos.xyz + dir) * result.skyMask;
 
+    // 步骤3.7: 计算Surfel索引并输出
     uint surfelIndex = id.x * 16 + id.y;
     _surfels[surfelIndex] = result;
 }

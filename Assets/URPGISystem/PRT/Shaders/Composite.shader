@@ -52,28 +52,37 @@ Shader "NewVision/PRT/Composite"
 
             float _GIIntensity;
 
+            // 步骤1: 从屏幕坐标和深度重建世界坐标
             float4 GetFragmentWorldPos(float2 screenPos)
             {
+                // 步骤1.1: 采样深度纹理获取原始深度值
                 float sceneRawDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, my_point_clamp_sampler, screenPos);
+                // 步骤1.2: 构建NDC坐标
                 float4 ndc = float4(screenPos.x * 2 - 1, screenPos.y * 2 - 1, sceneRawDepth, 1);
                 #if UNITY_UV_STARTS_AT_TOP
                     ndc.y *= -1;
                 #endif
+                // 步骤1.3: 使用逆视图投影矩阵变换到世界空间
                 float4 worldPos = mul(UNITY_MATRIX_I_VP, ndc);
                 worldPos /= worldPos.w;
 
                 return worldPos;
             }
 
+            // 步骤2: 片元着色器 - 合成间接光照
             float4 frag (v2f i) : SV_Target
             {
+                // 步骤2.1: 采样原始场景颜色
                 float4 color = tex2D(_MainTex, i.uv);
 
-                // decode from gbuffer
+                // 步骤2.2: 从深度重建世界坐标
                 float4 worldPos = GetFragmentWorldPos(i.uv);
+                // 步骤2.3: 从GBuffer采样反照率（Albedo）
                 float3 albedo = SAMPLE_TEXTURE2D_X_LOD(_GBuffer0, my_point_clamp_sampler, i.uv, 0).xyz;
+                // 步骤2.4: 从GBuffer采样法线
                 float3 normal = SAMPLE_TEXTURE2D_X_LOD(_GBuffer2, my_point_clamp_sampler, i.uv, 0).xyz;
 
+                // 步骤2.5: 从SH体素采样间接光照
                 float3 gi = SampleSHVoxel(
                     worldPos, 
                     albedo, 
@@ -83,6 +92,7 @@ Shader "NewVision/PRT/Composite"
                     _coefficientVoxelCorner,
                     _coefficientVoxelSize
                 );
+                // 步骤2.6: 将间接光照添加到场景颜色
                 color.rgb += gi * _GIIntensity;
                 
                 return color;

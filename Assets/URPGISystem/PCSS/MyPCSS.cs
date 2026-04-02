@@ -1,5 +1,4 @@
-using System.Collections;
-using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -35,6 +34,7 @@ namespace NewVision.PCSS
 
         public PCSSSettings settings = new PCSSSettings();
         private MyPCSSPass _pass;
+        private MyPCSSPostPass _postPass;
         private Material _material;
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -42,14 +42,20 @@ namespace NewVision.PCSS
             if (settings.PCSSShader == null) return;
             if (_material == null) _material = CoreUtils.CreateEngineMaterial(settings.PCSSShader);
 
-            _pass.Setup(renderer, _material, settings);
+            bool allowMainLightShadows = renderingData.shadowData.supportsMainLightShadows && renderingData.lightData.mainLightIndex != -1;
+            if (!allowMainLightShadows) return;
+
+            _pass.Setup(_material, settings);
             renderer.EnqueuePass(_pass);
+            renderer.EnqueuePass(_postPass);
         }
 
         public override void Create()
         {
             _pass = new MyPCSSPass();
-            _pass.renderPassEvent = RenderPassEvent.AfterRenderingShadows;
+            _postPass = new MyPCSSPostPass();
+            _pass.renderPassEvent = RenderPassEvent.AfterRenderingGbuffer;
+            _postPass.renderPassEvent = RenderPassEvent.BeforeRenderingTransparents;
         }
 
         protected override void Dispose(bool disposing)
@@ -63,13 +69,15 @@ namespace NewVision.PCSS
 
     public class MyPCSSPass : ScriptableRenderPass
     {
-        private static readonly int TempRTId = Shader.PropertyToID("_TempPCSSBuffer");
+        private const string k_SSShadowsTextureName = "_ScreenSpaceShadowmapTexture";
 
         private Material _material;
         private MyPCSS.PCSSSettings _settings;
-        private ScriptableRenderer _renderer;
+        private RenderTextureDescriptor m_RenderTextureDescriptor;
+        private RenderTargetHandle m_RenderTarget;
 
-        // Shader 属性 ID
+        private static readonly ProfilingSampler s_ProfilingSampler = new ProfilingSampler("PCSS Shadows");
+
         private static readonly int BlockerSamplesId = Shader.PropertyToID("Blocker_Samples");
         private static readonly int PCFSamplesId = Shader.PropertyToID("PCF_Samples");
         private static readonly int SoftnessId = Shader.PropertyToID("Softness");
@@ -81,34 +89,50 @@ namespace NewVision.PCSS
         private static readonly int NoiseCoordsId = Shader.PropertyToID("NoiseCoords");
         private static readonly int NoiseTexId = Shader.PropertyToID("_NoiseTexture");
 
-        public void Setup(ScriptableRenderer renderer, Material material, MyPCSS.PCSSSettings settings)
+        public MyPCSSPass()
         {
-            _renderer = renderer;
-            _material = material;
-            _settings = settings;
+            m_RenderTarget.Init(k_SSShadowsTextureName);
         }
 
-        public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
+        public void Setup(Material material, MyPCSS.PCSSSettings settings)
         {
-            cmd.GetTemporaryRT(TempRTId, cameraTextureDescriptor);
+            _material = material;
+            _settings = settings;
+            ConfigureInput(ScriptableRenderPassInput.Depth);
+        }
+
+        public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
+        {
+            m_RenderTextureDescriptor = renderingData.cameraData.cameraTargetDescriptor;
+            m_RenderTextureDescriptor.depthBufferBits = 0;
+            m_RenderTextureDescriptor.msaaSamples = 1;
+            m_RenderTextureDescriptor.colorFormat = RenderTextureFormat.R8;
+
+            cmd.GetTemporaryRT(m_RenderTarget.id, m_RenderTextureDescriptor, FilterMode.Point);
+
+            ConfigureTarget(m_RenderTarget.Identifier());
+            ConfigureClear(ClearFlag.Color, Color.white);
         }
 
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             if (_material == null || _settings == null) return;
-            CommandBuffer cmd = CommandBufferPool.Get("PCSS Shadows");
 
-            SetMaterialParams(cmd, ref renderingData);
+            CommandBuffer cmd = CommandBufferPool.Get();
+            using (new ProfilingScope(cmd, s_ProfilingSampler))
+            {
+                SetMaterialParams(cmd, ref renderingData);
 
-            // 获取相机目标描述符
-            RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
-            descriptor.depthBufferBits = 0;
-            descriptor.colorFormat = RenderTextureFormat.R8; // 阴影透明度
+                Camera camera = renderingData.cameraData.camera;
 
-            // 执行PCSS阴影计算
-            var source = _renderer.cameraColorTarget;
-            cmd.Blit(source, TempRTId, _material, 0);
-            cmd.Blit(TempRTId, source);
+                cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+                cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, _material);
+                cmd.SetViewProjectionMatrices(camera.worldToCameraMatrix, camera.projectionMatrix);
+
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadows, false);
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadowCascades, false);
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadowScreen, true);
+            }
 
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
@@ -116,32 +140,26 @@ namespace NewVision.PCSS
 
         private void SetMaterialParams(CommandBuffer cmd, ref RenderingData renderingData)
         {
-            // 采样数
             cmd.SetGlobalInt(BlockerSamplesId, _settings.BlockerSampleCount);
             cmd.SetGlobalInt(PCFSamplesId, _settings.PCFSampleCount);
 
-            // 柔和度 (根据阴影距离调整)
             float shadowDist = renderingData.cameraData.maxShadowDistance;
             if (shadowDist < 0.001f) shadowDist = 1f;
             cmd.SetGlobalFloat(SoftnessId, _settings.Softness / 64f / Mathf.Sqrt(shadowDist));
             cmd.SetGlobalFloat(SoftnessFalloffId, Mathf.Exp(_settings.SoftnessFalloff));
 
-            // 偏移
             cmd.SetGlobalFloat(MaxStaticBiasId, _settings.MaxStaticGradientBias);
             cmd.SetGlobalFloat(BlockerBiasId, _settings.BlockerGradientBias);
             cmd.SetGlobalFloat(PCFBiasId, _settings.PCFGradientBias);
 
-            // 级联混合
             cmd.SetGlobalFloat(CascadeBlendId, _settings.CascadeBlendDistance);
 
-            // 噪声纹理
             if (_settings.NoiseTexture != null)
             {
                 cmd.SetGlobalVector(NoiseCoordsId, new Vector4(1f / _settings.NoiseTexture.width, 1f / _settings.NoiseTexture.height, 0, 0));
                 cmd.SetGlobalTexture(NoiseTexId, _settings.NoiseTexture);
             }
 
-            // 关键字 (Keywords)
             SetKeyword(cmd, "USE_FALLOFF", _settings.SoftnessFalloff > Mathf.Epsilon);
             SetKeyword(cmd, "USE_CASCADE_BLENDING", _settings.CascadeBlendDistance > 0);
             SetKeyword(cmd, "USE_STATIC_BIAS", _settings.MaxStaticGradientBias > 0);
@@ -160,11 +178,39 @@ namespace NewVision.PCSS
             else cmd.DisableShaderKeyword(keyword);
         }
 
-        public override void FrameCleanup(CommandBuffer cmd)
+        public override void OnCameraCleanup(CommandBuffer cmd)
         {
-            cmd.ReleaseTemporaryRT(TempRTId);
+            if (cmd == null) throw new ArgumentNullException("cmd");
+            cmd.ReleaseTemporaryRT(m_RenderTarget.id);
+        }
+    }
+
+    public class MyPCSSPostPass : ScriptableRenderPass
+    {
+        private static readonly ProfilingSampler s_ProfilingSampler = new ProfilingSampler("PCSS Shadows Post");
+
+        public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
+        {
+            ConfigureTarget(BuiltinRenderTextureType.CurrentActive);
+        }
+
+        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+        {
+            CommandBuffer cmd = CommandBufferPool.Get();
+            using (new ProfilingScope(cmd, s_ProfilingSampler))
+            {
+                ShadowData shadowData = renderingData.shadowData;
+                int cascadesCount = shadowData.mainLightShadowCascadesCount;
+                bool mainLightShadows = renderingData.shadowData.supportsMainLightShadows;
+                bool receiveShadowsNoCascade = mainLightShadows && cascadesCount == 1;
+                bool receiveShadowsCascades = mainLightShadows && cascadesCount > 1;
+
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadowScreen, false);
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadows, receiveShadowsNoCascade);
+                CoreUtils.SetKeyword(cmd, ShaderKeywordStrings.MainLightShadowCascades, receiveShadowsCascades);
+            }
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
         }
     }
 }
-
-

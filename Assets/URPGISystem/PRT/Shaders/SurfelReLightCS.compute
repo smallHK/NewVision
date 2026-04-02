@@ -3,6 +3,7 @@
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 #include "SH.hlsl"
 
+// Surfel结构体定义
 struct Surfel
 {
     float3 position;
@@ -11,6 +12,7 @@ struct Surfel
     float skyMask;
 };
 
+// 输入/输出缓冲区
 RWStructuredBuffer<Surfel> _surfels;
 RWStructuredBuffer<int> _coefficientSH9;
 RWStructuredBuffer<int> _coefficientVoxel;
@@ -18,43 +20,50 @@ RWStructuredBuffer<float3> _surfelRadiance;
 int _indexInProbeVolume;
 float4 _probePos;
 
+// 步骤1: 计算直接光照
 float3 CalculateDirectLighting(float3 normal)
 {
+    // 步骤1.1: 简单的方向光模型
     float3 lightColor = 1.0;
     float3 lightDir = normalize(float3(1, 1, 1));
+    // 步骤1.2: Lambert漫反射
     float NdotL = saturate(dot(normal, lightDir));
     return lightColor * NdotL;
 }
 
+// 步骤2: 主计算着色器 - Surfel重光照
 [numthreads(32,16,1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
+    // 步骤2.1: 计算Surfel索引
     uint surfelIndex = id.x * 16 + id.y;
     Surfel surfel = _surfels[surfelIndex];
     
     float3 radiance = float3(0, 0, 0);
     
-    // direct lighting
+    // 步骤2.2: 计算直接光照（仅对非天空Surfel）
     if (surfel.skyMask < 0.995)
     {
         radiance += CalculateDirectLighting(surfel.normal);
     }
     
-    // indirect lighting
+    // 步骤2.3: 计算间接光照
     float3 dir = normalize(surfel.position - _probePos.xyz);
     float NdotV = saturate(dot(surfel.normal, dir));
     if (NdotV > 0)
     {
         float3 BRDF = surfel.albedo / PI;
         
-        // sample SH from voxel
+        // 步骤2.4: 从体素或独立缓冲区采样SH系数
         float3 c[9];
         if (_indexInProbeVolume >= 0)
         {
-            DecodeSHCoefficientFromVoxel(c, _coefficientVoxel, _indexInProbeVolume);
+            // 步骤2.4.1: 从体素缓冲区解码（使用RW版本）
+            DecodeSHCoefficientFromVoxelRW(c, _coefficientVoxel, _indexInProbeVolume);
         }
         else
         {
+            // 步骤2.4.2: 从独立缓冲区解码
             for (int i = 0; i < 9; i++)
             {
                 c[i] = float3(
@@ -65,23 +74,33 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             }
         }
         
+        // 步骤2.5: 计算辐照度并应用BRDF
         float3 irradiance = IrradianceSH9(c, surfel.normal);
         radiance += irradiance * BRDF * NdotV;
     }
     
+    // 步骤2.6: 输出辐射度（用于调试）
     _surfelRadiance[surfelIndex] = radiance;
     
-    // update SH coefficients
+    // 步骤3: 更新SH系数
+    // 计算采样方向（从探针到Surfel）
+    float3 sampleDir = normalize(surfel.position - _probePos.xyz);
+    
     if (_indexInProbeVolume >= 0)
     {
+        // 步骤3.1: 计算体素缓冲区偏移
         const int coefficientByteSize = 27;
         int offset = _indexInProbeVolume * coefficientByteSize;
         
+        // 步骤3.2: 累加各阶SH贡献
         for (int i = 0; i < 9; i++)
         {
-            float3 shValue = float3(SH(i / 3, i % 3 - 1, normalize(surfel.position - _probePos.xyz)));
+            // SH()返回标量值，作为SH基函数值
+            float shValue = SH(i / 3, i % 3 - 1, sampleDir);
+            // contribution = radiance * albedo * shBasis
             float3 contribution = radiance * surfel.albedo * shValue;
             
+            // 步骤3.3: 使用原子操作累加（线程安全）
             InterlockedAdd(_coefficientVoxel[offset + i * 3 + 0], EncodeFloatToInt(contribution.x));
             InterlockedAdd(_coefficientVoxel[offset + i * 3 + 1], EncodeFloatToInt(contribution.y));
             InterlockedAdd(_coefficientVoxel[offset + i * 3 + 2], EncodeFloatToInt(contribution.z));
@@ -89,9 +108,12 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     }
     else
     {
+        // 步骤3.4: 独立探针模式 - 累加到独立缓冲区
         for (int i = 0; i < 9; i++)
         {
-            float3 shValue = float3(SH(i / 3, i % 3 - 1, normalize(surfel.position - _probePos.xyz)));
+            // SH()返回标量值，作为SH基函数值
+            float shValue = SH(i / 3, i % 3 - 1, sampleDir);
+            // contribution = radiance * albedo * shBasis
             float3 contribution = radiance * surfel.albedo * shValue;
             
             InterlockedAdd(_coefficientSH9[i * 3 + 0], EncodeFloatToInt(contribution.x));
