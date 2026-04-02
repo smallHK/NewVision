@@ -64,6 +64,10 @@ Shader "Hidden/NewVision/IBL/EquirectangularToCubemap"
             // ============================================================================
             TEXTURE2D(_MainTex);
             SAMPLER(sampler_MainTex);
+            
+            // Unity内置的LinearClamp采样器状态
+            SamplerState LinearClamp;
+            
             int _FaceIndex;
 
             // ============================================================================
@@ -86,12 +90,14 @@ Shader "Hidden/NewVision/IBL/EquirectangularToCubemap"
              * 
              * UV范围[0,1]转换为[-1,1]的方向向量
              * 对应Cubemap的6个面：
-             * - 0: +X (Right)
-             * - 1: -X (Left)
-             * - 2: +Y (Top)
-             * - 3: -Y (Bottom)
-             * - 4: +Z (Front)
-             * - 5: -Z (Back)
+             * - 0: +X (Right)  - 看向+X方向，左是+Z，右是-Z，上是+Y，下是-Y
+             * - 1: -X (Left)   - 看向-X方向，左是-Z，右是+Z，上是+Y，下是-Y
+             * - 2: +Y (Top)    - 看向+Y方向，左是-X，右是+X，上是+Z，下是-Z
+             * - 3: -Y (Bottom) - 看向-Y方向，左是-X，右是+X，上是-Z，下是+Z
+             * - 4: +Z (Front)  - 看向+Z方向，左是-X，右是+X，上是+Y，下是-Y
+             * - 5: -Z (Back)   - 看向-Z方向，左是+X，右是-X，上是+Y，下是-Y
+             * 
+             * Unity UV坐标系：原点(0,0)在左下角，U向右增加，V向上增加
              */
             float3 GetDirectionForFace(int face, float2 uv)
             {
@@ -101,33 +107,45 @@ Shader "Hidden/NewVision/IBL/EquirectangularToCubemap"
 
                 if (face == 0)
                 {
-                    // +X面：x=1, y=-st.y, z=-st.x
-                    dir = float3(1.0, -st.y, -st.x);
+                    // +X面：看向+X方向
+                    // UV(0,0)左下 -> +Z偏-Y -> (1, -1, 1)
+                    // UV(1,1)右上 -> -Z偏+Y -> (1, 1, -1)
+                    dir = float3(1.0, st.y, -st.x);
                 }
                 else if (face == 1)
                 {
-                    // -X面：x=-1, y=-st.y, z=st.x
-                    dir = float3(-1.0, -st.y, st.x);
+                    // -X面：看向-X方向
+                    // UV(0,0)左下 -> -Z偏-Y -> (-1, -1, -1)
+                    // UV(1,1)右上 -> +Z偏+Y -> (-1, 1, 1)
+                    dir = float3(-1.0, st.y, st.x);
                 }
                 else if (face == 2)
                 {
-                    // +Y面：x=st.x, y=1, z=st.y
+                    // +Y面：看向+Y方向
+                    // UV(0,0)左下 -> -X偏-Z -> (-1, 1, -1)
+                    // UV(1,1)右上 -> +X偏+Z -> (1, 1, 1)
                     dir = float3(st.x, 1.0, st.y);
                 }
                 else if (face == 3)
                 {
-                    // -Y面：x=st.x, y=-1, z=-st.y
+                    // -Y面：看向-Y方向
+                    // UV(0,0)左下 -> -X偏+Z -> (-1, -1, 1)
+                    // UV(1,1)右上 -> +X偏-Z -> (1, -1, -1)
                     dir = float3(st.x, -1.0, -st.y);
                 }
                 else if (face == 4)
                 {
-                    // +Z面：x=st.x, y=-st.y, z=1
-                    dir = float3(st.x, -st.y, 1.0);
+                    // +Z面：看向+Z方向
+                    // UV(0,0)左下 -> -X偏-Y -> (-1, -1, 1)
+                    // UV(1,1)右上 -> +X偏+Y -> (1, 1, 1)
+                    dir = float3(st.x, st.y, 1.0);
                 }
                 else
                 {
-                    // -Z面：x=-st.x, y=-st.y, z=-1
-                    dir = float3(-st.x, -st.y, -1.0);
+                    // -Z面：看向-Z方向
+                    // UV(0,0)左下 -> +X偏-Y -> (1, -1, -1)
+                    // UV(1,1)右上 -> -X偏+Y -> (-1, 1, -1)
+                    dir = float3(-st.x, st.y, -1.0);
                 }
 
                 return normalize(dir);
@@ -188,8 +206,8 @@ Shader "Hidden/NewVision/IBL/EquirectangularToCubemap"
                 // Step 2: 将方向向量转换为等距圆柱投影UV坐标
                 float2 equiUV = DirectionToEquirectangular(dir);
 
-                // Step 3: 采样HDR纹理
-                float4 color = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, equiUV);
+                // Step 3: 使用LinearClamp采样器采样HDR纹理，防止边缘伪影
+                float4 color = SAMPLE_TEXTURE2D(_MainTex, LinearClamp, equiUV);
                 
                 return color;
             }

@@ -90,24 +90,24 @@ Shader "Hidden/NewVision/IBL/PrefilterConvolution"
              * 
              * UV范围[0,1]转换为[-1,1]的方向向量
              * 对应Cubemap的6个面：
-             * - 0: +X (Right)
-             * - 1: -X (Left)
-             * - 2: +Y (Top)
-             * - 3: -Y (Bottom)
-             * - 4: +Z (Front)
-             * - 5: -Z (Back)
+             * - 0: +X (Right)  - 看向+X方向，左是+Z，右是-Z，上是+Y，下是-Y
+             * - 1: -X (Left)   - 看向-X方向，左是-Z，右是+Z，上是+Y，下是-Y
+             * - 2: +Y (Top)    - 看向+Y方向，左是-X，右是+X，上是+Z，下是-Z
+             * - 3: -Y (Bottom) - 看向-Y方向，左是-X，右是+X，上是-Z，下是+Z
+             * - 4: +Z (Front)  - 看向+Z方向，左是-X，右是+X，上是+Y，下是-Y
+             * - 5: -Z (Back)   - 看向-Z方向，左是+X，右是-X，上是+Y，下是-Y
              */
             float3 GetCubemapDirection(float2 uv, int face)
             {
                 float2 st = uv * 2.0 - 1.0;
                 float3 dir = float3(0, 0, 0);
 
-                if (face == 0)       dir = float3(1.0, -st.y, -st.x);   // +X
-                else if (face == 1)  dir = float3(-1.0, -st.y, st.x);   // -X
+                if (face == 0)       dir = float3(1.0, st.y, -st.x);    // +X
+                else if (face == 1)  dir = float3(-1.0, st.y, st.x);    // -X
                 else if (face == 2)  dir = float3(st.x, 1.0, st.y);     // +Y
                 else if (face == 3)  dir = float3(st.x, -1.0, -st.y);   // -Y
-                else if (face == 4)  dir = float3(st.x, -st.y, 1.0);    // +Z
-                else                 dir = float3(-st.x, -st.y, -1.0);  // -Z
+                else if (face == 4)  dir = float3(st.x, st.y, 1.0);     // +Z
+                else                 dir = float3(-st.x, st.y, -1.0);   // -Z
 
                 return normalize(dir);
             }
