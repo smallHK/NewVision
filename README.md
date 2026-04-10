@@ -8,6 +8,15 @@ PCSS + IBL + PRT + VXGI + SSR + LTC + GTAO
 - GTAO
 - SSR
 
+正在处理
+- IBL
+- PCSS
+
+计划
+- VXGI
+- PRT
+- LTC
+
 暂时废弃
 - SSGI
 
